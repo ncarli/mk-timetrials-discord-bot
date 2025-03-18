@@ -1,0 +1,36 @@
+# Fichiers Python
+__pycache__/
+Scripts/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environnements virtuels
+venv/
+ENV/
+pyvenv.cfg
+
+# Fichiers de configuration avec informations sensibles
+.env
+
+# Base de données SQLite
+*.db
+
+# Logs
+*.log
