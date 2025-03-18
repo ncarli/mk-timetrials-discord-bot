@@ -73,7 +73,7 @@ python main.py
 ## 🏗️ Project Structure
 
 ```
-mk_discord_bot/
+root/
 ├── main.py                 # Bot entry point
 ├── config.py               # Configuration and constants
 ├── .env                    # Environment variables (Discord token)
@@ -111,4 +111,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Contact
 
-Project Link: [https://github.com/your-name/mk-discord-bot](https://github.com/your-name/mk-discord-bot)
+Project Link: [https://github.com/ncarli/mk-timetrials-discord-bot](https://github.com/ncarli/mk-timetrials-discord-bot)
