@@ -24,8 +24,8 @@ A Discord bot for organizing Time Attack tournaments for Mario Kart 8 Deluxe. Pl
 
 1. **Clone the repository**
    ```
-   git clone https://github.com/your-name/mk-discord-bot.git
-   cd mk-discord-bot
+   git clone https://github.com/ncarli/mk-timetrials-discord-bot
+   cd mk-timetrials-discord-bot
    ```
 
 2. **Install dependencies**
@@ -73,7 +73,7 @@ python main.py
 ## 🏗️ Project Structure
 
 ```
-root/
+mk-timetrials-discord-bot/
 ├── main.py                 # Bot entry point
 ├── config.py               # Configuration and constants
 ├── .env                    # Environment variables (Discord token)
