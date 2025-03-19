@@ -7,7 +7,7 @@ from discord.ext import commands
 from typing import Optional
 
 from database.manager import DatabaseManager
-from database.models import parse_time
+from database.models import parse_time, format_time
 from utils.embeds import EmbedBuilder
 from utils.validators import validate_time_format
 from utils.logger import log_command, log_score_submission, log_error
@@ -186,15 +186,14 @@ class ScoresCog(commands.Cog):
         for i, score in enumerate(scores):
             embed.add_field(
                 name=f"Temps #{i+1}",
-                value=f"**{parse_time(score['time_ms'])}** - Soumis le {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}",
-                inline=False
+                value=f"**{format_time(score['time_ms'])}** - Soumis le {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}",                inline=False
             )
         
         # Meilleur temps en évidence
         best_score = min(scores, key=lambda x: x['time_ms'])
         embed.add_field(
             name="Votre meilleur temps",
-            value=f"**{parse_time(best_score['time_ms'])}**",
+            value=f"**{format_time(best_score['time_ms'])}**",
             inline=False
         )
         
