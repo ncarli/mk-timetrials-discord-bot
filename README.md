@@ -22,14 +22,14 @@ A Discord bot for organizing Time Attack tournaments for Mario Kart 8 Deluxe. Pl
 - Discord bot account and token
 - Appropriate permissions
    - Bot
-      1. Send Messages
-      2. Embed Links
-      3. Attach Files
-      4. Read Message History
-      5. Manage Messages
+      - Send Messages
+      - Embed Links
+      - Attach Files
+      - Read Message History
+      - Manage Messages
    - Scopes
-      1. bot
-      2. applications.commands
+      - bot
+      - applications.commands
 
 ## 📋 Installation
 
