@@ -213,14 +213,17 @@ class AdminCog(commands.Cog):
         
         # Créer l'embed avec les détails du score
         embed = EmbedBuilder.admin_score_view(best_score, user_data, tournament)
-        
-        # Répondre avec l'embed
-        await interaction.response.send_message(embed=embed)
-        
-        # Effectuer l'action demandée
+
         if action == "verify":
             # Vérifier le score
             await DatabaseManager.verify_score(best_score['id'])
+            
+            # Mettre à jour le statut pour l'affichage
+            best_score['verified'] = True
+            
+            # Créer et envoyer l'embed avec les détails du score vérifié
+            embed = EmbedBuilder.admin_score_view(best_score, user_data, tournament)
+            await interaction.response.send_message(embed=embed)
             
             # Confirmer la vérification
             follow_up_embed = EmbedBuilder.confirmation_message(
@@ -228,17 +231,17 @@ class AdminCog(commands.Cog):
                 f"Le score de {utilisateur.mention} ({format_time(best_score['time_ms'])}) a été marqué comme vérifié."
             )
             await interaction.followup.send(embed=follow_up_embed)
-            
+                
         elif action == "delete":
-            # Supprimer le score
-            await DatabaseManager.delete_score(best_score['id'])
-            
-            # Confirmer la suppression
-            follow_up_embed = EmbedBuilder.confirmation_message(
+            # Répondre directement avec un message de confirmation
+            embed = EmbedBuilder.confirmation_message(
                 "Score supprimé",
                 f"Le score de {utilisateur.mention} ({format_time(best_score['time_ms'])}) a été supprimé."
             )
-            await interaction.followup.send(embed=follow_up_embed)
+            await interaction.response.send_message(embed=embed)
+            
+            # Supprimer le score
+            await DatabaseManager.delete_score(best_score['id'])
         
         # Mettre à jour le classement
         tournament_cog = self.bot.get_cog('TournamentCog')
