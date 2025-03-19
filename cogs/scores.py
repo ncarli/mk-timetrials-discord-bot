@@ -76,7 +76,12 @@ class ScoresCog(commands.Cog):
         if not participation_id:
             # L'utilisateur ne participe pas encore, l'inscrire automatiquement
             participation_id = await DatabaseManager.register_participation(tournament['id'], user_id)
-        
+            
+            # Annoncer le nouveau participant
+            tournament_cog = self.bot.get_cog('TournamentCog')
+            if tournament_cog:
+                await tournament_cog.announce_new_participant(interaction, tournament)
+            
         # Traiter la capture d'écran si elle est fournie
         screenshot_url = None
         if preuve:

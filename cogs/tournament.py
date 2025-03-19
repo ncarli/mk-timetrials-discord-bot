@@ -4,9 +4,10 @@ Cog pour la gestion des tournois Mario Kart 8 Time Attack.
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+
+import random
 from typing import List, Dict, Any, Optional, Tuple, Union
 from datetime import datetime, timedelta
-
 from database.manager import DatabaseManager
 from database.models import initialize_database
 from utils.embeds import EmbedBuilder
@@ -253,13 +254,21 @@ class TournamentCog(commands.Cog):
         # Enregistrer l'utilisateur
         user_id = await DatabaseManager.register_user(str(interaction.user.id), interaction.user.display_name)
         
-        # Enregistrer la participation
-        participation_id = await DatabaseManager.register_participation(tournament['id'], user_id)
+        # Vérifier si l'utilisateur participe déjà au tournoi
+        participation_id        = await DatabaseManager.get_participation_id(tournament['id'], user_id)
+        already_participating   = participation_id is not None
         
-        # Confirmer l'inscription
+        if not already_participating:
+            # Enregistrer la participation seulement s'il ne participe pas déjà
+            participation_id = await DatabaseManager.register_participation(tournament['id'], user_id)
+            
+            # Annoncer le nouveau participant
+            await self.announce_new_participant(interaction, tournament)
+        
+        # Confirmer l'inscription à l'utilisateur (message privé)
         embed = EmbedBuilder.participation_confirmation(tournament)
         await interaction.response.send_message(embed=embed, ephemeral=True)
-    
+        
     @app_commands.command(
         name="annuler",
         description="Annule le tournoi Time Attack en cours"
@@ -371,6 +380,62 @@ class TournamentCog(commands.Cog):
         
         # Envoyer les informations
         await interaction.response.send_message(embed=embed)
+        
+    async def announce_new_participant(self, interaction, tournament, user=None):
+        """
+        Annonce publiquement qu'un nouvel utilisateur participe au tournoi.
+        
+        Args:
+            interaction: Interaction Discord
+            tournament: Informations du tournoi
+            user: Utilisateur qui participe (optionnel, par défaut utilise interaction.user)
+        """
+        if user is None:
+            user = interaction.user
+            
+        # Créer un embed pour l'annonce publique avec une phrase aléatoire
+        phrases = [
+            f"Les moteurs rugissent, {interaction.user.mention} entre en piste !",
+            f"Un nouveau challenger apparaît ! {interaction.user.mention} prend le volant !",
+            f"Attention {interaction.user.mention} a des étoiles dans les yeux et la main sur l'accélérateur !",
+            f"La rumeur dit que {interaction.user.mention} a battu Army lui-même... Mais chut, c'est un secret !",
+            f"{interaction.user.mention} arrive avec une carapace bleue et beaucoup d'ambition !",
+            f"Les Lakitus sont formels : {interaction.user.mention} pourrait bien créer la surprise !",
+            f"Un Boo a murmuré que {interaction.user.mention} connaît tous les raccourcis..."
+        ]
+        
+        public_embed = discord.Embed(
+            title=f"🏎️ Nouveau participant !",
+            description=random.choice(phrases),
+            color=0x2ECC71  # Vert
+        )
+        
+        # Ajouter un compte à rebours
+        time_left = tournament['end_date'] - datetime.now()
+        days_left = time_left.days
+        hours_left = time_left.seconds // 3600
+        
+        public_embed.add_field(
+            name="⏱️ Temps restant",
+            value=f"{days_left} jours et {hours_left} heures",
+            inline=True
+        )
+        
+        # Ajouter le nombre de participants
+        participants_count = await DatabaseManager.get_tournament_participants_count(tournament['id'])
+        public_embed.add_field(
+            name="👥 Participants",
+            value=f"{participants_count} pilotes en course",
+            inline=True
+        )
+        
+        public_embed.set_thumbnail(url=tournament['course_image'])
+        
+        # Déterminer le canal où envoyer l'annonce
+        channel = interaction.channel
+        
+        # Envoyer l'annonce publique dans le canal
+        await channel.send(embed=public_embed)
 
 async def setup(bot: commands.Bot):
     """
