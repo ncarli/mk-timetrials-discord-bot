@@ -15,10 +15,21 @@ A Discord bot for organizing Time Attack tournaments for Mario Kart 8 Deluxe. Pl
 
 ## 🛠️ Prerequisites
 
-- Python 3.8 or higher
-- Stable internet connection
+### Python
+- 3.8 or higher
+
+### Discord
 - Discord bot account and token
-- Appropriate Discord permissions
+- Appropriate permissions
+   - Bot
+      1. Send Messages
+      2. Embed Links
+      3. Attach Files
+      4. Read Message History
+      5. Manage Messages
+   - Scopes
+      1. bot
+      2. applications.commands
 
 ## 📋 Installation
 
@@ -53,7 +64,7 @@ python main.py
 ## 🎮 Commands
 
 ### Tournament Commands
-- `/tournoi [classe] [duree]` - Creates a new tournament (admin only)
+- `/tournoi [classe] [duree] [course]` - Creates a new tournament (admin only)
 - `/participer` - Registers the user for the current tournament
 - `/info` - Displays information about the current tournament
 - `/annuler` - Cancels the current tournament (admin only)
