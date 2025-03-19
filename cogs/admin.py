@@ -4,7 +4,7 @@ Cog pour les commandes d'administration du bot Mario Kart 8 Time Attack.
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional
+from typing import Optional, List
 
 from database.manager import DatabaseManager
 from utils.embeds import EmbedBuilder
@@ -126,7 +126,8 @@ class AdminCog(commands.Cog):
     )
     @app_commands.describe(
         utilisateur="Utilisateur dont le score doit être vérifié",
-        action="Action à effectuer"
+        action="Action à effectuer",
+        score_index="Index du score à vérifier (1 = meilleur temps, 2 = 2ème meilleur, etc.)"
     )
     @app_commands.choices(action=[
         app_commands.Choice(name="Vérifier le score", value="verify"),
@@ -136,7 +137,8 @@ class AdminCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         utilisateur: discord.User,
-        action: str
+        action: str,
+        score_index: Optional[int] = 1
     ):
         """
         Vérifie ou invalide un score soumis.
@@ -145,6 +147,7 @@ class AdminCog(commands.Cog):
             interaction: Interaction Discord
             utilisateur: Utilisateur dont le score doit être vérifié
             action: Action à effectuer (vérifier ou supprimer)
+            score_index: Index du score à vérifier (1 = meilleur temps, 2 = 2ème meilleur, etc.)
         """
         # Journaliser la commande
         log_command(interaction.guild_id, interaction.user.id, "verifier")
@@ -203,7 +206,20 @@ class AdminCog(commands.Cog):
         
         # Trier par temps (du meilleur au pire)
         scores.sort(key=lambda x: x['time_ms'])
-        best_score = scores[0]
+        
+        # Vérifier si l'index du score est valide
+        if score_index < 1 or score_index > len(scores):
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error_message(
+                    "Index de score invalide",
+                    f"{utilisateur.mention} n'a que {len(scores)} score(s). Veuillez choisir un index entre 1 et {len(scores)}."
+                ),
+                ephemeral=True
+            )
+            return
+        
+        # Obtenir le score selon l'index (en soustrayant 1 car les listes commencent à 0)
+        selected_score = scores[score_index - 1]
         
         # Créer les informations utilisateur pour l'embed
         user_data = {
@@ -211,42 +227,245 @@ class AdminCog(commands.Cog):
             "discord_id": str(utilisateur.id)
         }
         
-        # Créer l'embed avec les détails du score
-        embed = EmbedBuilder.admin_score_view(best_score, user_data, tournament)
-
+        # Créer l'embed avec les détails du score et une indication de l'index
+        embed = discord.Embed(
+            title=f"Vérification de score: {user_data['username']} (Score #{score_index}/{len(scores)})",
+            description=f"Score soumis pour **{tournament['course_name']}** ({tournament['vehicle_class']})",
+            color=0x3498DB  # Bleu
+        )
+        
+        embed.add_field(
+            name="Temps",
+            value=f"**{format_time(selected_score['time_ms'])}**",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="Soumis le",
+            value=selected_score['submitted_at'].strftime("%d/%m/%Y à %H:%M"),
+            inline=True
+        )
+        
+        embed.add_field(
+            name="Status",
+            value="✅ Vérifié" if selected_score['verified'] else "⏳ En attente de vérification",
+            inline=True
+        )
+        
+        # Ajouter un champ montrant tous les temps soumis
+        scores_list = ""
+        for i, score in enumerate(scores):
+            verification_status = "✅" if score['verified'] else "⏳"
+            current_marker = "➡️ " if i == (score_index - 1) else ""
+            scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
+        
+        embed.add_field(
+            name="Tous les temps soumis",
+            value=scores_list,
+            inline=False
+        )
+        
+        if selected_score['screenshot_url']:
+            embed.add_field(
+                name="Capture d'écran",
+                value="Voir ci-dessous",
+                inline=False
+            )
+            embed.set_image(url=selected_score['screenshot_url'])
+        else:
+            embed.add_field(
+                name="Capture d'écran",
+                value="Aucune capture d'écran fournie",
+                inline=False
+            )
+        
+        embed.set_thumbnail(url=tournament['course_image'])
+        embed.set_footer(text=f"ID du score: {selected_score['id']}")
+        
         if action == "verify":
             # Vérifier le score
-            await DatabaseManager.verify_score(best_score['id'])
+            await DatabaseManager.verify_score(selected_score['id'])
             
             # Mettre à jour le statut pour l'affichage
-            best_score['verified'] = True
+            selected_score['verified'] = True
             
-            # Créer et envoyer l'embed avec les détails du score vérifié
-            embed = EmbedBuilder.admin_score_view(best_score, user_data, tournament)
+            # Mettre à jour l'embed pour refléter le nouveau statut
+            embed.remove_field(2)  # Supprime le champ "Status"
+            embed.insert_field_at(
+                2,
+                name="Status",
+                value="✅ Vérifié",  # Maintenant vérifié
+                inline=True
+            )
+            
+            # Mettre à jour également la liste des scores
+            scores_list = ""
+            for i, score in enumerate(scores):
+                verification_status = "✅" if (score['verified'] or (i == score_index - 1)) else "⏳"
+                current_marker = "➡️ " if i == (score_index - 1) else ""
+                scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
+            
+            # Mettre à jour le champ avec la liste des scores
+            embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
+            embed.insert_field_at(
+                3,
+                name="Tous les temps soumis",
+                value=scores_list,
+                inline=False
+            )
+            
+            # Envoyer l'embed mis à jour
             await interaction.response.send_message(embed=embed)
             
             # Confirmer la vérification
             follow_up_embed = EmbedBuilder.confirmation_message(
                 "Score vérifié",
-                f"Le score de {utilisateur.mention} ({format_time(best_score['time_ms'])}) a été marqué comme vérifié."
+                f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été marqué comme vérifié."
             )
             await interaction.followup.send(embed=follow_up_embed)
-                
+            
         elif action == "delete":
-            # Répondre directement avec un message de confirmation
-            embed = EmbedBuilder.confirmation_message(
-                "Score supprimé",
-                f"Le score de {utilisateur.mention} ({format_time(best_score['time_ms'])}) a été supprimé."
+            # Mettre à jour l'embed pour indiquer que le score sera supprimé
+            embed.remove_field(2)  # Supprime le champ "Status"
+            embed.insert_field_at(
+                2,
+                name="Status",
+                value="❌ Supprimé",  # Indique que le score est supprimé
+                inline=True
             )
+            
+            # Mettre à jour également la liste des scores
+            scores_list = ""
+            for i, score in enumerate(scores):
+                # Pour le score supprimé, on met une croix rouge
+                if i == (score_index - 1):
+                    verification_status = "❌"
+                    current_marker = "➡️ "
+                else:
+                    verification_status = "✅" if score['verified'] else "⏳"
+                    current_marker = ""
+                scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
+            
+            # Mettre à jour le champ avec la liste des scores
+            embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
+            embed.insert_field_at(
+                3,
+                name="Tous les temps soumis",
+                value=scores_list,
+                inline=False
+            )
+            
+            # Répondre avec l'embed mis à jour
             await interaction.response.send_message(embed=embed)
             
             # Supprimer le score
-            await DatabaseManager.delete_score(best_score['id'])
+            await DatabaseManager.delete_score(selected_score['id'])
+            
+            # Confirmer la suppression
+            follow_up_embed = EmbedBuilder.confirmation_message(
+                "Score supprimé",
+                f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été supprimé."
+            )
+            await interaction.followup.send(embed=follow_up_embed)
         
         # Mettre à jour le classement
         tournament_cog = self.bot.get_cog('TournamentCog')
         if tournament_cog:
             await tournament_cog.update_leaderboard(interaction.guild_id, tournament['id'])
+    
+    @app_commands.command(
+        name="scores",
+        description="Affiche tous les scores d'un utilisateur pour le tournoi en cours"
+    )
+    @app_commands.describe(
+        utilisateur="Utilisateur dont vous voulez voir les scores"
+    )
+    async def view_user_scores(self, interaction: discord.Interaction, utilisateur: discord.User):
+        """
+        Affiche tous les scores soumis par un utilisateur pour le tournoi en cours.
+        
+        Args:
+            interaction: Interaction Discord
+            utilisateur: Utilisateur dont on veut voir les scores
+        """
+        # Journaliser la commande
+        log_command(interaction.guild_id, interaction.user.id, "scores")
+        
+        # Vérifier les permissions d'administration
+        if not await self.is_admin(interaction):
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error_message(
+                    "Permission refusée",
+                    "Vous devez être administrateur pour voir les scores des autres utilisateurs."
+                ),
+                ephemeral=True
+            )
+            return
+        
+        # Vérifier s'il y a un tournoi actif
+        tournament = await DatabaseManager.get_active_tournament(interaction.guild_id)
+        if not tournament:
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error_message(
+                    "Aucun tournoi actif",
+                    "Il n'y a pas de tournoi en cours sur ce serveur."
+                ),
+                ephemeral=True
+            )
+            return
+        
+        # Récupérer l'ID utilisateur
+        user_id = await DatabaseManager.register_user(str(utilisateur.id), utilisateur.display_name)
+        
+        # Vérifier si l'utilisateur participe au tournoi
+        participation_id = await DatabaseManager.get_participation_id(tournament['id'], user_id)
+        
+        if not participation_id:
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error_message(
+                    "Pas de participation",
+                    f"{utilisateur.mention} ne participe pas au tournoi en cours."
+                ),
+                ephemeral=True
+            )
+            return
+        
+        # Récupérer tous les scores de l'utilisateur
+        scores = await DatabaseManager.get_user_scores(participation_id)
+        
+        if not scores:
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error_message(
+                    "Aucun score",
+                    f"{utilisateur.mention} n'a pas encore soumis de temps pour ce tournoi."
+                ),
+                ephemeral=True
+            )
+            return
+        
+        # Trier par temps (du meilleur au pire)
+        scores.sort(key=lambda x: x['time_ms'])
+        
+        # Créer un embed pour afficher les scores
+        embed = discord.Embed(
+            title=f"Scores de {utilisateur.display_name} pour {tournament['course_name']}",
+            description=f"**{len(scores)}** temps soumis pour le tournoi en cours.",
+            color=0x3498DB  # Bleu
+        )
+        
+        # Ajouter chaque score à l'embed
+        for i, score in enumerate(scores):
+            verification_status = "✅ Vérifié" if score['verified'] else "⏳ En attente"
+            embed.add_field(
+                name=f"Score #{i+1}: {format_time(score['time_ms'])}",
+                value=f"Soumis le {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}\nStatut: {verification_status}",
+                inline=True
+            )
+        
+        embed.set_thumbnail(url=tournament['course_image'])
+        embed.set_footer(text=f"Pour vérifier un score spécifique, utilisez /verifier avec le paramètre score_index")
+        
+        await interaction.response.send_message(embed=embed)
     
     @app_commands.command(
         name="historique",
