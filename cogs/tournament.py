@@ -4,7 +4,7 @@ Cog pour la gestion des tournois Mario Kart 8 Time Attack.
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from typing import Optional, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple, Union
 from datetime import datetime, timedelta
 
 from database.manager import DatabaseManager
@@ -69,11 +69,12 @@ class TournamentCog(commands.Cog):
     
     @app_commands.command(
         name="tournoi",
-        description="Crée un nouveau tournoi Time Attack avec une course aléatoire"
+        description="Crée un nouveau tournoi Time Attack"
     )
     @app_commands.describe(
         classe="Classe de véhicule (150cc, 200cc, Miroir)",
-        duree="Durée du tournoi en jours (1-90)"
+        duree="Durée du tournoi en jours (1-90)",
+        course="Nom de la course (optionnel, aléatoire si non spécifié)"
     )
     @app_commands.choices(classe=[
         app_commands.Choice(name="150cc", value="150cc"),
@@ -84,7 +85,8 @@ class TournamentCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         classe: str = "150cc",
-        duree: int = DEFAULT_TOURNAMENT_DURATION
+        duree: int = DEFAULT_TOURNAMENT_DURATION,
+        course: Optional[str] = None
     ):
         """
         Crée un nouveau tournoi Time Attack avec une course aléatoire.
@@ -153,22 +155,25 @@ class TournamentCog(commands.Cog):
         # Enregistrer le serveur s'il n'existe pas déjà
         await DatabaseManager.register_server(interaction.guild_id, interaction.guild.name)
         
-        # Sélectionner une course aléatoire
-        course = await DatabaseManager.get_random_course()
-        if not course:
-            await interaction.response.send_message(
-                embed=EmbedBuilder.error_message(
-                    "Erreur",
-                    "Impossible de sélectionner une course aléatoire. Veuillez réessayer."
-                ),
-                ephemeral=True
-            )
-            return
+        # Sélectionner une course (aléatoire ou spécifique)
+        if course:
+            course_data = await DatabaseManager.get_course_by_name(course)
+            if not course_data:
+                await interaction.response.send_message(
+                    embed=EmbedBuilder.error_message(
+                        "Course introuvable",
+                        f"La course '{course}' n'a pas été trouvée. Vérifiez l'orthographe ou laissez vide pour une sélection aléatoire."
+                    ),
+                    ephemeral=True
+                )
+                return
+        else:
+            course_data = await DatabaseManager.get_random_course()
         
         # Créer le tournoi dans la base de données
         tournament_id = await DatabaseManager.create_tournament(
             interaction.guild_id,
-            course['id'],
+            course_data['id'],
             classe,
             duree
         )
@@ -206,7 +211,18 @@ class TournamentCog(commands.Cog):
         await DatabaseManager.update_tournament_message(tournament_id, str(original_message.id))
         
         # Logger la création du tournoi
-        log_tournament_creation(interaction.guild_id, tournament_id, course['name'])
+        log_tournament_creation(interaction.guild_id, tournament_id, course_data['name'])
+        
+    @create_tournament.autocomplete('course')
+    async def course_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+        if not current:
+            return []
+        
+        courses = await DatabaseManager.search_courses(current)
+        return [
+            app_commands.Choice(name=course['name'], value=course['name'])
+            for course in courses[:10]
+        ]
     
     @app_commands.command(
         name="participer",

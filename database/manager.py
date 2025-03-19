@@ -588,3 +588,55 @@ class DatabaseManager:
         result = await cursor.fetchone()
         
         return result[0] if result else 0
+    
+    @classmethod
+    async def get_course_by_name(cls, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Récupère une course par son nom (recherche partielle insensible à la casse).
+        
+        Args:
+            name: Nom complet ou partiel de la course
+            
+        Returns:
+            Dictionnaire contenant les informations de la course ou None si non trouvée
+        """
+        
+        conn = await cls.get_connection()
+        
+        # LIKE pour une recherche partielle et LOWER pour ignorer la casse
+        cursor = await conn.execute(
+            "SELECT course_id, name, cup, origin, image_url FROM course WHERE LOWER(name) LIKE LOWER(?)",
+            (f"%{name}%",)
+        )
+        row = await cursor.fetchone()
+        
+        if row:
+            return {
+                "id": row[0],
+                "name": row[1],
+                "cup": row[2],
+                "origin": row[3],
+                "image_url": row[4]
+            }
+        return None
+    
+    @classmethod
+    async def search_courses(cls, search_term: str) -> List[Dict[str, Any]]:
+        """
+        Recherche des courses par nom.
+        
+        Args:
+            search_term: Terme de recherche
+            
+        Returns:
+            Liste des courses correspondantes
+        """
+        
+        conn    = await cls.get_connection()
+        cursor  = await conn.execute(
+            "SELECT course_id, name FROM course WHERE LOWER(name) LIKE LOWER(?) ORDER BY name LIMIT 10",
+            (f"%{search_term}%",)
+        )
+        rows = await cursor.fetchall()
+        
+        return [{"id": row[0], "name": row[1]} for row in rows]
