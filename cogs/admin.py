@@ -283,8 +283,17 @@ class AdminCog(commands.Cog):
         embed.set_footer(text=f"ID du score: {selected_score['id']}")
         
         if action == "verify":
-            # Vérifier le score
+            # Vérifier le score sélectionné
             await DatabaseManager.verify_score(selected_score['id'])
+            
+            # Si c'est le meilleur score (index 1) et qu'il existe d'autres scores,
+            # supprimer automatiquement les autres scores
+            other_scores_deleted = False
+            if score_index == 1 and len(scores) > 1:
+                other_scores_deleted = True
+                # Ne pas supprimer le meilleur score qu'on vient de vérifier
+                for other_score in scores[1:]:  # Tous les scores sauf le premier
+                    await DatabaseManager.delete_score(other_score['id'])
             
             # Mettre à jour le statut pour l'affichage
             selected_score['verified'] = True
@@ -298,29 +307,46 @@ class AdminCog(commands.Cog):
                 inline=True
             )
             
-            # Mettre à jour également la liste des scores
-            scores_list = ""
-            for i, score in enumerate(scores):
-                verification_status = "✅" if (score['verified'] or (i == score_index - 1)) else "⏳"
-                current_marker = "➡️ " if i == (score_index - 1) else ""
-                scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
-            
-            # Mettre à jour le champ avec la liste des scores
-            embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
-            embed.insert_field_at(
-                3,
-                name="Tous les temps soumis",
-                value=scores_list,
-                inline=False
-            )
+            # Si on a supprimé d'autres scores, mettre à jour la liste ou la supprimer complètement
+            if other_scores_deleted:
+                # Simplifier l'embed en supprimant le champ "Tous les temps soumis"
+                # car il n'y a plus qu'un seul score
+                embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
+                
+                # Ajouter une note indiquant que les autres scores ont été supprimés
+                embed.add_field(
+                    name="Autres scores",
+                    value="❌ Les autres scores de cet utilisateur ont été automatiquement supprimés.",
+                    inline=False
+                )
+            else:
+                # Sinon, mettre à jour la liste des scores normalement
+                scores_list = ""
+                for i, score in enumerate(scores):
+                    verification_status = "✅" if (score['verified'] or (i == score_index - 1)) else "⏳"
+                    current_marker = "➡️ " if i == (score_index - 1) else ""
+                    scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
+                
+                # Mettre à jour le champ avec la liste des scores
+                embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
+                embed.insert_field_at(
+                    3,
+                    name="Tous les temps soumis",
+                    value=scores_list,
+                    inline=False
+                )
             
             # Envoyer l'embed mis à jour
             await interaction.response.send_message(embed=embed)
             
             # Confirmer la vérification
+            message = f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été marqué comme vérifié."
+            if other_scores_deleted:
+                message += f"\n{len(scores)-1} autres scores ont été automatiquement supprimés."
+            
             follow_up_embed = EmbedBuilder.confirmation_message(
                 "Score vérifié",
-                f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été marqué comme vérifié."
+                message
             )
             await interaction.followup.send(embed=follow_up_embed)
             
