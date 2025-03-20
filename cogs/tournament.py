@@ -33,7 +33,7 @@ class TournamentCog(commands.Cog):
 
     async def update_leaderboard(self, guild_id: int, tournament_id: int):
         """
-        Met à jour le message de classement du tournoi.
+        Met à jour le message de classement du tournoi dans le canal principal et dans le thread.
         
         Args:
             guild_id: ID du serveur Discord
@@ -53,17 +53,47 @@ class TournamentCog(commands.Cog):
             if not guild:
                 return
             
-            # Trouver le message original
+            # Créer l'embed de classement
+            leaderboard_embed = EmbedBuilder.tournament_leaderboard(tournament, scores)
+            
+            # 1. Mettre à jour le message original dans le canal principal
+            updated_main_channel = False
             for channel in guild.text_channels:
                 try:
-                    message = await channel.fetch_message(tournament['message_id'])
-                    
-                    # Mettre à jour l'embed
-                    leaderboard_embed = EmbedBuilder.tournament_leaderboard(tournament, scores)
-                    await message.edit(embed=leaderboard_embed)
-                    break
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    if tournament['message_id']:
+                        message = await channel.fetch_message(int(tournament['message_id']))
+                        await message.edit(embed=leaderboard_embed)
+                        updated_main_channel = True
+                        break
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError) as e:
+                    logger.error(f"Erreur lors de la mise à jour du classement dans le canal principal: {str(e)}")
                     continue
+            
+            # 2. Mettre à jour le thread si disponible
+            if tournament['thread_id']:
+                try:
+                    thread = self.bot.get_channel(int(tournament['thread_id']))
+                    if thread:
+                        # Rechercher un message existant avec le classement dans le thread
+                        # ou envoyer un nouveau message s'il n'y en a pas
+                        async for message in thread.history(limit=50):
+                            if message.author == self.bot.user and message.embeds:
+                                for embed in message.embeds:
+                                    if embed.title and "Classement:" in embed.title:
+                                        try:
+                                            await message.edit(embed=leaderboard_embed)
+                                            return  # Classement mis à jour avec succès dans le thread
+                                        except discord.HTTPException as e:
+                                            logger.error(f"Erreur lors de la mise à jour du classement dans le thread: {str(e)}")
+                        
+                        # Si aucun message de classement n'a été trouvé, envoyer un nouveau
+                        await thread.send(embed=leaderboard_embed)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError) as e:
+                    logger.error(f"Erreur lors de la mise à jour du classement dans le thread: {str(e)}")
+            
+            # Si le classement n'a pas pu être mis à jour dans le canal principal ou le thread
+            if not updated_main_channel and not tournament['thread_id']:
+                logger.warning(f"Impossible de mettre à jour le classement pour le tournoi {tournament_id}")
         
         except Exception as e:
             log_error(f"Erreur lors de la mise à jour du classement: {str(e)}")
@@ -207,6 +237,50 @@ class TournamentCog(commands.Cog):
         except discord.Forbidden:
             # Le bot n'a pas la permission d'épingler, continuer sans épingler
             pass
+        
+        # Créer un thread pour le tournoi
+        try:
+            # Création du thread à partir du message d'annonce
+            thread_name = f"🏁 Tournoi {tournament['course_name']} ({tournament['vehicle_class']})"
+            thread = await original_message.create_thread(
+                name=thread_name,
+                auto_archive_duration=10080  # 7 jours (maximum)
+            )
+            
+            # Envoi d'un message d'accueil dans le thread
+            welcome_embed = discord.Embed(
+                title=f"Bienvenue dans le tournoi {tournament['course_name']} !",
+                description=(
+                    "Ce thread est dédié au tournoi en cours. Vous y trouverez toutes les informations "
+                    "et mises à jour concernant ce tournoi.\n\n"
+                    "Utilisez les commandes suivantes ici même :"
+                ),
+                color=0x3498DB  # Bleu
+            )
+            
+            welcome_embed.add_field(
+                name="Commandes principales",
+                value=(
+                    "`/participer` - S'inscrire au tournoi\n"
+                    "`/score <temps> [preuve]` - Soumettre un temps\n"
+                    "`/messcores` - Voir vos temps soumis\n"
+                    "`/info` - Afficher le classement actuel"
+                ),
+                inline=False
+            )
+            
+            welcome_embed.set_thumbnail(url=tournament['course_image'])
+            
+            await thread.send(embed=welcome_embed)
+            
+            # Enregistrer l'ID du thread dans la base de données
+            await DatabaseManager.update_tournament_thread(tournament_id, str(thread.id))
+            
+            logger.info(f"Thread créé pour le tournoi {tournament_id} : {thread.id}")
+        except discord.Forbidden:
+            logger.error(f"Impossible de créer un thread pour le tournoi {tournament_id} : permission insuffisante")
+        except Exception as e:
+            logger.error(f"Erreur lors de la création du thread pour le tournoi {tournament_id} : {str(e)}")
         
         # Mettre à jour l'ID du message dans la base de données
         await DatabaseManager.update_tournament_message(tournament_id, str(original_message.id))
@@ -395,13 +469,13 @@ class TournamentCog(commands.Cog):
             
         # Créer un embed pour l'annonce publique avec une phrase aléatoire
         phrases = [
-            f"Les moteurs rugissent, {interaction.user.mention} entre en piste !",
-            f"Un nouveau challenger apparaît ! {interaction.user.mention} prend le volant !",
-            f"Attention {interaction.user.mention} a des étoiles dans les yeux et la main sur l'accélérateur !",
-            f"La rumeur dit que {interaction.user.mention} a battu Army lui-même... Mais chut, c'est un secret !",
-            f"{interaction.user.mention} arrive avec une carapace bleue et beaucoup d'ambition !",
-            f"Les Lakitus sont formels : {interaction.user.mention} pourrait bien créer la surprise !",
-            f"Un Boo a murmuré que {interaction.user.mention} connaît tous les raccourcis..."
+            f"Les moteurs rugissent, {user.mention} entre en piste !",
+            f"Un nouveau challenger apparaît ! {user.mention} prend le volant !",
+            f"Attention {user.mention} a des étoiles dans les yeux et la main sur l'accélérateur !",
+            f"La rumeur dit que {user.mention} a battu Army lui-même... Mais chut, c'est un secret !",
+            f"{user.mention} arrive avec une carapace bleue et beaucoup d'ambition !",
+            f"Les Lakitus sont formels : {user.mention} pourrait bien créer la surprise !",
+            f"Un Boo a murmuré que {user.mention} connaît tous les raccourcis..."
         ]
         
         public_embed = discord.Embed(
@@ -431,10 +505,18 @@ class TournamentCog(commands.Cog):
         
         public_embed.set_thumbnail(url=tournament['course_image'])
         
-        # Déterminer le canal où envoyer l'annonce
-        channel = interaction.channel
+        # Envoyer l'annonce dans le thread si disponible, sinon dans le canal d'origine
+        if tournament['thread_id']:
+            try:
+                thread = interaction.guild.get_thread(int(tournament['thread_id']))
+                if thread:
+                    await thread.send(embed=public_embed)
+                    return
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError) as e:
+                logger.error(f"Erreur lors de l'envoi de l'annonce dans le thread: {str(e)}")
         
-        # Envoyer l'annonce publique dans le canal
+        # Si le thread n'existe pas ou n'est pas accessible, envoyer dans le canal d'origine
+        channel = interaction.channel
         await channel.send(embed=public_embed)
 
 async def setup(bot: commands.Bot):
