@@ -10,7 +10,7 @@ from database.manager import DatabaseManager
 from database.models import parse_time, format_time
 from utils.embeds import EmbedBuilder
 from utils.validators import validate_time_format
-from utils.logger import log_command, log_score_submission, log_error
+from utils.logger import logger, log_command, log_score_submission, log_error
 
 class ScoresCog(commands.Cog):
     """
@@ -100,13 +100,52 @@ class ScoresCog(commands.Cog):
             # Utiliser l'URL de l'attachement directement
             screenshot_url = preuve.url
         
-        # Enregistrer le score
         try:
+            # Enregistrer le score
             score_id = await DatabaseManager.submit_score(participation_id, time_ms, screenshot_url)
             
-            # Confirmer la soumission
+            # Confirmer la soumission à l'utilisateur
             embed = EmbedBuilder.score_submission(tournament, time_ms, screenshot_url)
             await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+            # Déterminer si nous sommes déjà dans le thread du tournoi
+            in_tournament_thread = (
+                interaction.channel and 
+                isinstance(interaction.channel, discord.Thread) and 
+                str(interaction.channel.id) == tournament['thread_id']
+            )
+            
+            # Annoncer le nouveau score dans le thread du tournoi
+            if tournament['thread_id']:
+                try:
+                    thread = interaction.guild.get_thread(int(tournament['thread_id']))
+                    if thread:
+                        # Créer un embed pour annoncer le nouveau score dans le thread
+                        score_announce_embed = discord.Embed(
+                            title=f"🕒 Nouveau temps soumis !",
+                            description=f"{interaction.user.mention} vient de soumettre un temps de **{format_time(time_ms)}** !",
+                            color=0x2ECC71  # Vert
+                        )
+                        
+                        if screenshot_url:
+                            score_announce_embed.add_field(
+                                name="Capture d'écran",
+                                value="Preuve fournie ✅",
+                                inline=True
+                            )
+                        
+                        score_announce_embed.set_thumbnail(url=tournament['course_image'])
+                        
+                        await thread.send(embed=score_announce_embed)
+                        
+                        # Si l'utilisateur n'est pas dans le thread, lui suggérer de le rejoindre
+                        if not in_tournament_thread:
+                            await interaction.followup.send(
+                                f"Votre temps a été annoncé dans <#{tournament['thread_id']}>. Rejoignez le thread pour suivre le tournoi !",
+                                ephemeral=True
+                            )
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError) as e:
+                    logger.error(f"Erreur lors de l'annonce du score dans le thread: {str(e)}")
             
             # Journaliser la soumission
             log_score_submission(interaction.guild_id, interaction.user.id, tournament['id'], time_ms)
@@ -189,9 +228,11 @@ class ScoresCog(commands.Cog):
         )
         
         for i, score in enumerate(scores):
+            verification_status = "✅ Vérifié" if score['verified'] else "⏳ En attente"
             embed.add_field(
                 name=f"Temps #{i+1}",
-                value=f"**{format_time(score['time_ms'])}** - Soumis le {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}",                inline=False
+                value=f"**{format_time(score['time_ms'])}** - Soumis le {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}\nStatut: {verification_status}",
+                inline=False
             )
         
         # Meilleur temps en évidence
@@ -204,7 +245,23 @@ class ScoresCog(commands.Cog):
         
         embed.set_thumbnail(url=tournament['course_image'])
         
+        # Envoyer l'embed à l'utilisateur (toujours en privé)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        # Déterminer si nous sommes dans le thread du tournoi
+        in_tournament_thread = (
+            interaction.channel and 
+            isinstance(interaction.channel, discord.Thread) and 
+            str(interaction.channel.id) == tournament['thread_id']
+        )
+        
+        # Si nous ne sommes pas dans le thread du tournoi et qu'un thread existe,
+        # suggérer à l'utilisateur de le rejoindre
+        if not in_tournament_thread and tournament['thread_id']:
+            await interaction.followup.send(
+                f"Pour suivre le tournoi et interagir avec les autres participants, rejoignez le thread dédié : <#{tournament['thread_id']}>",
+                ephemeral=True
+            )
 
 async def setup(bot: commands.Bot):
     """

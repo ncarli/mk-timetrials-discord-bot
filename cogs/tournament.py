@@ -336,13 +336,48 @@ class TournamentCog(commands.Cog):
             # Enregistrer la participation seulement s'il ne participe pas déjà
             participation_id = await DatabaseManager.register_participation(tournament['id'], user_id)
             
-            # Annoncer le nouveau participant
+            # Confirmer l'inscription à l'utilisateur (message privé)
+            embed = EmbedBuilder.participation_confirmation(tournament)
+            await interaction.response.send_message(
+                embed=embed,
+                ephemeral=True
+            )
+            
+            # Déterminer si nous sommes déjà dans le thread du tournoi
+            in_tournament_thread = (
+                interaction.channel and 
+                isinstance(interaction.channel, discord.Thread) and 
+                str(interaction.channel.id) == tournament['thread_id']
+            )
+            
+            # Annoncer le nouveau participant dans le thread ou le canal approprié
+            if not in_tournament_thread:
+                # Informer l'utilisateur que la confirmation a été envoyée dans le thread
+                thread_link = f"<#{tournament['thread_id']}>" if tournament['thread_id'] else "le thread du tournoi"
+                await interaction.followup.send(
+                    f"Votre participation a été annoncée dans {thread_link}. Retrouvez-y toutes les informations sur le tournoi !",
+                    ephemeral=True
+                )
+            
+            # Annoncer le nouveau participant dans le thread ou le canal approprié
             await self.announce_new_participant(interaction, tournament)
-        
-        # Confirmer l'inscription à l'utilisateur (message privé)
-        embed = EmbedBuilder.participation_confirmation(tournament)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        
+        else:
+            # Si l'utilisateur participe déjà, lui envoyer un message privé
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error_message(
+                    "Déjà inscrit",
+                    f"Vous participez déjà au tournoi sur **{tournament['course_name']}**."
+                ),
+                ephemeral=True
+            )
+            
+            # Suggérer à l'utilisateur de rejoindre le thread s'il n'y est pas déjà
+            if tournament['thread_id'] and not isinstance(interaction.channel, discord.Thread):
+                await interaction.followup.send(
+                    f"Pour suivre le tournoi, rejoignez le thread dédié : <#{tournament['thread_id']}>",
+                    ephemeral=True
+                )
+
     @app_commands.command(
         name="annuler",
         description="Annule le tournoi Time Attack en cours"
@@ -452,8 +487,28 @@ class TournamentCog(commands.Cog):
         # Créer l'embed d'information
         embed = EmbedBuilder.tournament_leaderboard(tournament, scores)
         
-        # Envoyer les informations
-        await interaction.response.send_message(embed=embed)
+        # Déterminer si nous sommes dans le thread du tournoi
+        in_tournament_thread = (
+            interaction.channel and 
+            isinstance(interaction.channel, discord.Thread) and 
+            str(interaction.channel.id) == tournament['thread_id']
+        )
+        
+        # Si nous sommes dans le thread du tournoi, on peut envoyer le message publiquement
+        # Sinon, on suggère à l'utilisateur de rejoindre le thread
+        if in_tournament_thread:
+            # Envoyer les informations publiquement dans le thread
+            await interaction.response.send_message(embed=embed)
+        else:
+            # Envoyer les informations en privé
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+            # Si un thread existe, suggérer à l'utilisateur de le rejoindre
+            if tournament['thread_id']:
+                await interaction.followup.send(
+                    f"Pour suivre le tournoi et interagir avec les autres participants, rejoignez le thread dédié : <#{tournament['thread_id']}>",
+                    ephemeral=True
+                )
         
     async def announce_new_participant(self, interaction, tournament, user=None):
         """
