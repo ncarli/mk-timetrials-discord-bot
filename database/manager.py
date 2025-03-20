@@ -282,8 +282,7 @@ class DatabaseManager:
         conn = await cls.get_connection()
         cursor = await conn.execute(
             """
-            SELECT t.tournament_id, t.course_id, t.vehicle_class, t.start_date, t.end_date, t.message_id,
-                   c.name, c.cup, c.origin, c.image_url
+            SELECT t.tournament_id, t.course_id, t.vehicle_class, t.start_date, t.end_date, t.message_id, t.thread_id, c.name, c.cup, c.origin, c.image_url
             FROM tournament t
             JOIN course c ON t.course_id = c.course_id
             WHERE t.server_id = ? AND t.is_active = 1
@@ -300,10 +299,11 @@ class DatabaseManager:
                 "start_date": datetime.fromisoformat(row[3]),
                 "end_date": datetime.fromisoformat(row[4]),
                 "message_id": row[5],
-                "course_name": row[6],
-                "cup_name": row[7],
-                "course_origin": row[8],
-                "course_image": row[9]
+                "thread_id": row[6],
+                "course_name": row[7],
+                "cup_name": row[8],
+                "course_origin": row[9],
+                "course_image": row[10]
             }
         return None
     
@@ -640,3 +640,46 @@ class DatabaseManager:
         rows = await cursor.fetchall()
         
         return [{"id": row[0], "name": row[1]} for row in rows]
+    
+    @classmethod
+    async def update_tournament_thread(cls, tournament_id: int, thread_id: str) -> bool:
+        """
+        Met à jour l'ID du thread associé à un tournoi.
+        
+        Args:
+            tournament_id: ID du tournoi
+            thread_id: ID du thread Discord
+            
+        Returns:
+            True si la mise à jour est réussie, False sinon
+        """
+        conn = await cls.get_connection()
+        try:
+            await conn.execute(
+                "UPDATE tournament SET thread_id = ? WHERE tournament_id = ?",
+                (thread_id, tournament_id)
+            )
+            await conn.commit()
+            return True
+        except aiosqlite.Error:
+            return False
+
+    @classmethod
+    async def get_tournament_thread(cls, tournament_id: int) -> Optional[str]:
+        """
+        Récupère l'ID du thread associé à un tournoi.
+        
+        Args:
+            tournament_id: ID du tournoi
+            
+        Returns:
+            ID du thread ou None si non défini
+        """
+        conn = await cls.get_connection()
+        cursor = await conn.execute(
+            "SELECT thread_id FROM tournament WHERE tournament_id = ?",
+            (tournament_id,)
+        )
+        result = await cursor.fetchone()
+        
+        return result[0] if result and result[0] else None

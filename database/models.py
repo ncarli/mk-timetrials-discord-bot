@@ -49,6 +49,7 @@ CREATE_TABLES = [
         end_date TIMESTAMP NOT NULL,
         is_active BOOLEAN DEFAULT 1,
         message_id TEXT,
+        thread_id TEXT,
         FOREIGN KEY (server_id) REFERENCES server (server_id) ON DELETE CASCADE,
         FOREIGN KEY (course_id) REFERENCES course (course_id)
     )
@@ -86,6 +87,9 @@ async def initialize_database() -> None:
         for table_sql in CREATE_TABLES:
             await db.execute(table_sql)
         
+        # Vérification des mises à jour de schéma nécessaires
+        await _check_schema_updates(db)
+        
         # Vérifier si les courses sont déjà importées
         cursor = await db.execute("SELECT COUNT(*) FROM course")
         count = await cursor.fetchone()
@@ -117,6 +121,28 @@ async def initialize_database() -> None:
         await db.commit()
         print("Initialisation de la base de données terminée.")
 
+async def _check_schema_updates(db):
+    """
+    Vérifie et applique les mises à jour nécessaires au schéma de la base de données.
+    
+    Args:
+        db: Connexion à la base de données
+    """
+    # Vérifier si la colonne thread_id existe déjà dans la table tournament
+    try:
+        cursor = await db.execute("PRAGMA table_info(tournament)")
+        columns = await cursor.fetchall()
+        
+        # Rechercher la colonne thread_id
+        thread_id_exists = any(column[1] == 'thread_id' for column in columns)
+        
+        # Si la colonne n'existe pas, l'ajouter
+        if not thread_id_exists:
+            print("Mise à jour du schéma: Ajout de la colonne thread_id à la table tournament")
+            await db.execute("ALTER TABLE tournament ADD COLUMN thread_id TEXT")
+            await db.commit()
+    except Exception as e:
+        print(f"Erreur lors de la mise à jour du schéma: {e}")
 
 def parse_time(time_str: str) -> int:
     """
