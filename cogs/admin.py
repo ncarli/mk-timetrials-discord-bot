@@ -295,18 +295,54 @@ class AdminCog(commands.Cog):
                 for other_score in scores[1:]:  # Tous les scores sauf le premier
                     await DatabaseManager.delete_score(other_score['id'])
             
-            # Créer l'embed de confirmation
-            message = f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été marqué comme vérifié."
-            if other_scores_deleted:
-                message += f"\n{len(scores)-1} autres scores ont été automatiquement supprimés."
-            
-            follow_up_embed = EmbedBuilder.confirmation_message(
-                "Score vérifié",
-                message
+            # Mettre à jour l'embed pour refléter le nouveau statut
+            embed.remove_field(2)  # Supprime le champ "Status"
+            embed.insert_field_at(
+                2,
+                name="Status",
+                value="✅ Vérifié",  # Maintenant vérifié
+                inline=True
             )
             
-            # Envoyer la confirmation en message éphémère
-            await interaction.followup.send(embed=follow_up_embed, ephemeral=True)
+            # Créer le message de confirmation
+            confirm_message = f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été marqué comme vérifié."
+            if other_scores_deleted:
+                confirm_message += f"\n{len(scores)-1} autres scores ont été automatiquement supprimés."
+                
+                # Si on a supprimé d'autres scores, mettre à jour la liste ou la supprimer complètement
+                if other_scores_deleted:
+                    # Simplifier l'embed en supprimant le champ "Tous les temps soumis"
+                    # car il n'y a plus qu'un seul score
+                    embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
+                    
+                    # Ajouter une note indiquant que les autres scores ont été supprimés
+                    embed.add_field(
+                        name="Autres scores",
+                        value="❌ Les autres scores de cet utilisateur ont été automatiquement supprimés.",
+                        inline=False
+                    )
+            else:
+                # Sinon, mettre à jour la liste des scores normalement
+                scores_list = ""
+                for i, score in enumerate(scores):
+                    verification_status = "✅" if (score['verified'] or (i == score_index - 1)) else "⏳"
+                    current_marker = "➡️ " if i == (score_index - 1) else ""
+                    scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
+                
+                # Mettre à jour le champ avec la liste des scores
+                embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
+                embed.insert_field_at(
+                    3,
+                    name="Tous les temps soumis",
+                    value=scores_list,
+                    inline=False
+                )
+            
+            # Envoyer l'embed mis à jour avec le message de confirmation
+            await interaction.response.send_message(
+                content=confirm_message,
+                embed=embed
+            )
             
             # Vérifier si un thread de tournoi existe et y envoyer une notification
             if tournament['thread_id']:
@@ -344,12 +380,41 @@ class AdminCog(commands.Cog):
             # Supprimer le score
             await DatabaseManager.delete_score(selected_score['id'])
             
-            # Confirmer la suppression en message éphémère
-            follow_up_embed = EmbedBuilder.confirmation_message(
-                "Score supprimé",
-                f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été supprimé."
+            # Mettre à jour l'embed pour indiquer que le score a été supprimé
+            embed.remove_field(2)  # Supprime le champ "Status"
+            embed.insert_field_at(
+                2,
+                name="Status",
+                value="❌ Supprimé",  # Indique que le score est supprimé
+                inline=True
             )
-            await interaction.followup.send(embed=follow_up_embed, ephemeral=True)
+            
+            # Mettre à jour également la liste des scores
+            scores_list = ""
+            for i, score in enumerate(scores):
+                # Pour le score supprimé, on met une croix rouge
+                if i == (score_index - 1):
+                    verification_status = "❌"
+                    current_marker = "➡️ "
+                else:
+                    verification_status = "✅" if score['verified'] else "⏳"
+                    current_marker = ""
+                scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
+            
+            # Mettre à jour le champ avec la liste des scores
+            embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
+            embed.insert_field_at(
+                3,
+                name="Tous les temps soumis",
+                value=scores_list,
+                inline=False
+            )
+            
+            # Envoyer l'embed mis à jour avec un message de confirmation
+            await interaction.response.send_message(
+                content=f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été supprimé.",
+                embed=embed
+            )
             
             # Vérifier si un thread de tournoi existe et y envoyer une notification
             if tournament['thread_id']:
