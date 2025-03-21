@@ -9,8 +9,8 @@ import random
 from typing import List, Dict, Any, Optional, Tuple, Union
 from datetime import datetime, timedelta
 from database.manager import DatabaseManager
-from database.models import initialize_database
-from utils.embeds import EmbedBuilder
+from database.models import initialize_database, format_time
+from utils.embeds import EmbedBuilder, format_date
 from utils.validators import validate_vehicle_class, validate_duration
 from utils.logger import logger, log_command, log_tournament_creation, log_tournament_end, log_error
 from config import VEHICLE_CLASSES, DEFAULT_TOURNAMENT_DURATION, REMINDER_DAYS_BEFORE_END
@@ -24,12 +24,190 @@ class TournamentCog(commands.Cog):
         self.bot = bot
         
         # C'est la bonne façon de démarrer des tâches dans les versions récentes de discord.py
+        # Bot.add_listener exécutera la méthode une fois que l'événement on_ready sera déclenché
         bot.add_listener(self.start_tasks, 'on_ready')  
 
     async def start_tasks(self):
         """Initialise la base de données et démarre les tâches périodiques."""
         await self.bot.wait_until_ready()   
         await initialize_database()
+        
+        # Démarrer les tâches périodiques si elles ne sont pas déjà en cours
+        if not self.check_ended_tournaments.is_running():
+            self.check_ended_tournaments.start()
+            logger.info("Tâche de vérification des tournois terminés démarrée")
+
+    @tasks.loop(hours=1)
+    async def check_ended_tournaments(self):
+        """
+        Vérifie et traite les tournois qui sont terminés.
+        Cette tâche s'exécute toutes les heures.
+        """
+        logger.info("Vérification des tournois terminés en cours...")
+        
+        try:
+            # Récupérer les tournois terminés mais encore actifs
+            ended_tournaments = await self._get_ended_tournaments()
+            
+            for tournament in ended_tournaments:
+                logger.info(f"Traitement du tournoi terminé {tournament['id']} sur {tournament['guild_id']}")
+                
+                # Récupérer les meilleurs scores
+                scores = await DatabaseManager.get_best_scores(tournament['id'])
+                
+                # Récupérer le serveur Discord
+                guild = self.bot.get_guild(tournament['guild_id'])
+                if not guild:
+                    logger.warning(f"Impossible de trouver le serveur {tournament['guild_id']} pour le tournoi {tournament['id']}")
+                    continue
+                
+                # Récupérer les participants pour les mentionner
+                participants = await self._get_tournament_participants(tournament['id'])
+                
+                # Création de l'embed pour l'annonce de fin
+                end_embed = EmbedBuilder.tournament_ended(tournament, scores)
+                
+                # Chercher le canal où se trouve le message d'origine
+                original_channel = None
+                original_message = None
+                
+                if tournament['message_id']:
+                    for channel in guild.text_channels:
+                        try:
+                            original_message = await channel.fetch_message(int(tournament['message_id']))
+                            original_channel = channel
+                            break
+                        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                            continue
+                
+                # Envoyer l'annonce de fin dans le canal d'origine si disponible
+                if original_channel and original_message:
+                    try:
+                        await original_channel.send(embed=end_embed)
+                        await original_message.unpin()
+                    except discord.HTTPException as e:
+                        logger.error(f"Erreur lors de l'envoi du message de fin pour le tournoi {tournament['id']} : {str(e)}")
+                
+                # Gérer le thread si disponible
+                if tournament['thread_id']:
+                    try:
+                        thread = guild.get_thread(int(tournament['thread_id']))
+                        if thread:
+                            # Envoyer un message de fin dans le thread avec mention de tous les participants
+                            end_thread_embed = discord.Embed(
+                                title="🏁 Tournoi terminé !",
+                                description=f"Le tournoi sur **{tournament['course_name']}** est maintenant terminé.",
+                                color=0xF1C40F  # Jaune/Or
+                            )
+                            
+                            # Ajouter les résultats
+                            if scores:
+                                winners_text = ""
+                                for i, score in enumerate(scores[:3]):
+                                    if i == 0:
+                                        winners_text += f"🥇 **{score['username']}**: {format_time(score['time_ms'])}\n"
+                                    elif i == 1:
+                                        winners_text += f"🥈 **{score['username']}**: {format_time(score['time_ms'])}\n"
+                                    elif i == 2:
+                                        winners_text += f"🥉 **{score['username']}**: {format_time(score['time_ms'])}\n"
+                                
+                                end_thread_embed.add_field(
+                                    name="Podium",
+                                    value=winners_text if winners_text else "Pas assez de participants pour un podium complet.",
+                                    inline=False
+                                )
+                            else:
+                                end_thread_embed.add_field(
+                                    name="Résultats",
+                                    value="Aucun temps n'a été soumis pour ce tournoi.",
+                                    inline=False
+                                )
+                            
+                            # Ajouter la durée du tournoi
+                            end_thread_embed.add_field(
+                                name="Durée du tournoi",
+                                value=f"Du {format_date(tournament['start_date'])} au {format_date(tournament['end_date'])}",
+                                inline=False
+                            )
+                            
+                            end_thread_embed.set_thumbnail(url=tournament['course_image'])
+                            
+                            # Envoyer l'embed dans le thread
+                            await thread.send(embed=end_thread_embed)
+                            
+                            # Notification aux participants
+                            if participants:
+                                participants_mentions = [f"<@{participant_id}>" for participant_id in participants]
+                                notification_message = "Le tournoi est terminé ! Merci à tous les participants."
+                                
+                                # Si nous avons un podium, féliciter les gagnants
+                                if scores and len(scores) >= 1:
+                                    notification_message += f"\n\nFélicitations à <@{scores[0]['discord_id']}> pour sa victoire avec un temps de {format_time(scores[0]['time_ms'])} ! 🏆"
+                                
+                                # Envoyer la notification et les mentions
+                                await thread.send(notification_message)
+                                if len(participants) > 0:
+                                    participants_text = " ".join(participants_mentions)
+                                    await thread.send(f"Information pour : {participants_text}")
+                            
+                            # Archiver le thread
+                            await thread.edit(archived=True, locked=False)  # Archivé mais pas verrouillé
+                            logger.info(f"Thread {thread.id} pour le tournoi {tournament['id']} archivé suite à la fin du tournoi")
+                    
+                    except Exception as e:
+                        logger.error(f"Erreur lors de la gestion du thread pour le tournoi terminé {tournament['id']} : {str(e)}")
+                
+                # Marquer le tournoi comme inactif dans la base de données
+                await DatabaseManager.cancel_tournament(tournament['id'])
+                log_tournament_end(tournament['guild_id'], tournament['id'], len(participants))
+        
+        except Exception as e:
+            logger.error(f"Erreur lors de la vérification des tournois terminés : {str(e)}")
+
+    @check_ended_tournaments.before_loop
+    async def before_check_ended_tournaments(self):
+        """S'assure que le bot est prêt avant de commencer la tâche."""
+        await self.bot.wait_until_ready()
+
+    async def _get_ended_tournaments(self) -> List[Dict[str, Any]]:
+        """
+        Récupère la liste des tournois qui sont terminés mais encore marqués comme actifs.
+        
+        Returns:
+            Liste des tournois terminés
+        """
+        conn    = await DatabaseManager.get_connection()
+        now     = datetime.now()
+        
+        cursor  = await conn.execute(
+            """
+            SELECT t.tournament_id, t.server_id, t.course_id, t.vehicle_class, t.start_date, t.end_date, t.message_id, t.thread_id, c.name, c.cup, c.origin, c.image_url
+            FROM tournament t
+            JOIN course c ON t.course_id = c.course_id
+            WHERE t.is_active = 1 AND t.end_date < ?
+            """,
+            (now.isoformat(),)
+        )
+        rows = await cursor.fetchall()
+        
+        tournaments = []
+        for row in rows:
+            tournaments.append({
+                "id": row[0],
+                "guild_id": row[1],
+                "course_id": row[2],
+                "vehicle_class": row[3],
+                "start_date": datetime.fromisoformat(row[4]),
+                "end_date": datetime.fromisoformat(row[5]),
+                "message_id": row[6],
+                "thread_id": row[7],
+                "course_name": row[8],
+                "cup_name": row[9],
+                "course_origin": row[10],
+                "course_image": row[11]
+            })
+        
+        return tournaments
 
     async def update_leaderboard(self, guild_id: int, tournament_id: int):
         """
@@ -428,17 +606,60 @@ class TournamentCog(commands.Cog):
             )
             return
         
-        # Annuler le tournoi
+        # Récupérer les participants pour les mentionner
+        participants = await self._get_tournament_participants(tournament['id'])
+        
+        # Créer un embed pour l'annulation
+        cancel_embed = EmbedBuilder.confirmation_message(
+            "Tournoi annulé",
+            f"Le tournoi sur **{tournament['course_name']}** a été annulé par {interaction.user.mention}."
+        )
+        
+        # Répondre à l'interaction initiale
+        await interaction.response.send_message(embed=cancel_embed)
+        
+        # Gérer le thread du tournoi si disponible
+        if tournament['thread_id']:
+            try:
+                thread = interaction.guild.get_thread(int(tournament['thread_id']))
+                if thread:
+                    # Envoyer un message d'annulation dans le thread avec mention de tous les participants
+                    cancel_thread_embed = discord.Embed(
+                        title="🚫 Tournoi annulé",
+                        description=f"Le tournoi sur **{tournament['course_name']}** a été annulé par {interaction.user.mention}.",
+                        color=0xE74C3C  # Rouge
+                    )
+                    
+                    # Ajouter la liste des participants
+                    if participants:
+                        participants_mentions = [f"<@{participant_id}>" for participant_id in participants]
+                        cancel_thread_embed.add_field(
+                            name=f"Notification aux {len(participants)} participants",
+                            value="Ce tournoi a été annulé. Merci de votre participation !",
+                            inline=False
+                        )
+                        
+                        # Envoyer le message avec les mentions
+                        await thread.send(embed=cancel_thread_embed)
+                        
+                        # Envoyer les mentions dans un message séparé pour notifier les participants
+                        if len(participants) > 0:
+                            participants_text = " ".join(participants_mentions)
+                            await thread.send(f"Information importante pour : {participants_text}")
+                    else:
+                        # S'il n'y a pas de participants, envoyer juste l'embed
+                        await thread.send(embed=cancel_thread_embed)
+                    
+                    # Archiver le thread
+                    await thread.edit(archived=True, locked=True)
+                    logger.info(f"Thread {thread.id} pour le tournoi {tournament['id']} archivé suite à l'annulation")
+            except Exception as e:
+                logger.error(f"Erreur lors de la gestion du thread pour le tournoi annulé {tournament['id']} : {str(e)}")
+        
+        # Annuler le tournoi dans la base de données
         success = await DatabaseManager.cancel_tournament(tournament['id'])
         
         if success:
-            # Confirmer l'annulation
-            embed = EmbedBuilder.confirmation_message(
-                "Tournoi annulé",
-                f"Le tournoi sur **{tournament['course_name']}** a été annulé."
-            )
-            await interaction.response.send_message(embed=embed)
-            
             # Trouver et dépingler le message du tournoi
             try:
                 message = await interaction.channel.fetch_message(tournament['message_id'])
@@ -447,13 +668,38 @@ class TournamentCog(commands.Cog):
                 # Le message n'existe plus ou le bot n'a pas la permission, ignorer
                 pass
         else:
-            await interaction.response.send_message(
+            # Notification en cas d'erreur avec la base de données
+            await interaction.followup.send(
                 embed=EmbedBuilder.error_message(
                     "Erreur",
-                    "Impossible d'annuler le tournoi. Veuillez réessayer."
+                    "Le tournoi a été annulé, mais une erreur s'est produite lors de la mise à jour de la base de données."
                 ),
                 ephemeral=True
             )
+            
+    async def _get_tournament_participants(self, tournament_id: int) -> List[str]:
+        """
+        Récupère la liste des IDs Discord des participants à un tournoi.
+        
+        Args:
+            tournament_id: ID du tournoi
+            
+        Returns:
+            Liste des IDs Discord des participants
+        """
+        conn = await DatabaseManager.get_connection()
+        cursor = await conn.execute(
+            """
+            SELECT u.discord_id
+            FROM user u
+            JOIN participation p ON u.user_id = p.user_id
+            WHERE p.tournament_id = ?
+            """,
+            (tournament_id,)
+        )
+        rows = await cursor.fetchall()
+        
+        return [row[0] for row in rows]
     
     @app_commands.command(
         name="info",
@@ -573,6 +819,86 @@ class TournamentCog(commands.Cog):
         # Si le thread n'existe pas ou n'est pas accessible, envoyer dans le canal d'origine
         channel = interaction.channel
         await channel.send(embed=public_embed)
+
+    @app_commands.command(
+        name="tournois",
+        description="Liste tous les tournois actifs sur le serveur"
+    )
+    async def list_tournaments(self, interaction: discord.Interaction):
+        """
+        Liste tous les tournois actifs sur le serveur.
+        
+        Args:
+            interaction: Interaction Discord
+        """
+        # Journaliser la commande
+        log_command(interaction.guild_id, interaction.user.id, "tournois")
+        
+        # Vérifier s'il y a un tournoi actif
+        tournament = await DatabaseManager.get_active_tournament(interaction.guild_id)
+        
+        if not tournament:
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error_message(
+                    "Aucun tournoi actif",
+                    "Il n'y a pas de tournoi en cours sur ce serveur."
+                ),
+                ephemeral=True
+            )
+            return
+        
+        # Créer un embed pour afficher les informations sur le tournoi actif
+        embed = discord.Embed(
+            title="🏁 Tournoi actif",
+            description=f"Un tournoi est en cours sur ce serveur :",
+            color=0x3498DB  # Bleu
+        )
+        
+        # Ajouter les informations du tournoi
+        embed.add_field(
+            name="Course",
+            value=f"**{tournament['course_name']}** ({tournament['vehicle_class']})",
+            inline=True
+        )
+        
+        # Calculer le temps restant
+        time_left = tournament['end_date'] - datetime.now()
+        days_left = time_left.days
+        hours_left = time_left.seconds // 3600
+        
+        embed.add_field(
+            name="Temps restant",
+            value=f"{days_left} jours et {hours_left} heures",
+            inline=True
+        )
+        
+        # Lien vers le thread
+        if tournament['thread_id']:
+            embed.add_field(
+                name="Thread dédié",
+                value=f"[Cliquez ici](https://discord.com/channels/{interaction.guild_id}/{tournament['thread_id']}) pour rejoindre le thread du tournoi.",
+                inline=False
+            )
+        
+        # Nombre de participants
+        participants_count = await DatabaseManager.get_tournament_participants_count(tournament['id'])
+        
+        embed.add_field(
+            name="Participants",
+            value=f"{participants_count} pilote{'s' if participants_count != 1 else ''}",
+            inline=True
+        )
+        
+        # Dates du tournoi
+        embed.add_field(
+            name="Période",
+            value=f"Du {format_date(tournament['start_date'])} au {format_date(tournament['end_date'])}",
+            inline=True
+        )
+        
+        embed.set_thumbnail(url=tournament['course_image'])
+        
+        await interaction.response.send_message(embed=embed)
 
 async def setup(bot: commands.Bot):
     """

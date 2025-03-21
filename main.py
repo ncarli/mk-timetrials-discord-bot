@@ -185,7 +185,8 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(
         name="Commandes de tournoi",
         value=(
-            "`/tournoi [classe] [duree]` - Crée un nouveau tournoi\n"
+            "`/tournoi [classe] [duree] [course]` - Crée un nouveau tournoi\n"
+            "`/tournois` - Liste les tournois actifs\n"
             "`/participer` - Inscrit au tournoi en cours\n"
             "`/info` - Affiche les informations du tournoi\n"
             "`/annuler` - Annule le tournoi en cours (admin uniquement)"
@@ -198,7 +199,7 @@ async def help_command(interaction: discord.Interaction):
         value=(
             "`/score <temps> [preuve]` - Soumet un temps\n"
             "`/messcores` - Affiche vos temps soumis\n"
-            "`/verifier <utilisateur> <action>` - Vérifie ou supprime un score (admin uniquement)"
+            "`/verifier <utilisateur> <action> [score_index]` - Vérifie ou supprime un score (admin uniquement)"
         ),
         inline=False
     )
@@ -212,7 +213,16 @@ async def help_command(interaction: discord.Interaction):
         inline=False
     )
     
-    embed.set_footer(text="Bot développé par [Votre nom]")
+    embed.add_field(
+        name="Threads de tournoi",
+        value=(
+            "Chaque tournoi crée automatiquement un thread dédié pour centraliser les interactions. "
+            "Rejoignez ce thread pour suivre le tournoi, voir les classements et interagir avec les autres participants."
+        ),
+        inline=False
+    )
+    
+    embed.set_footer(text="Bot développé par MaCheLaPizza")
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
