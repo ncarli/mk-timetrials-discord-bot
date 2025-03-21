@@ -609,10 +609,10 @@ class TournamentCog(commands.Cog):
         # Récupérer les participants pour les mentionner
         participants = await self._get_tournament_participants(tournament['id'])
         
-        # Créer un embed pour l'annulation
-        cancel_embed = EmbedBuilder.confirmation_message(
-            "Tournoi annulé",
-            f"Le tournoi sur **{tournament['course_name']}** a été annulé par {interaction.user.mention}."
+        cancel_embed = discord.Embed(
+            title="🚫 Tournoi annulé",
+            description=f"Le tournoi sur **{tournament['course_name']}** a été annulé par {interaction.user.mention}.",
+            color=0xE74C3C  # Rouge
         )
         
         # Répondre à l'interaction initiale

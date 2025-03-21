@@ -295,51 +295,7 @@ class AdminCog(commands.Cog):
                 for other_score in scores[1:]:  # Tous les scores sauf le premier
                     await DatabaseManager.delete_score(other_score['id'])
             
-            # Mettre à jour le statut pour l'affichage
-            selected_score['verified'] = True
-            
-            # Mettre à jour l'embed pour refléter le nouveau statut
-            embed.remove_field(2)  # Supprime le champ "Status"
-            embed.insert_field_at(
-                2,
-                name="Status",
-                value="✅ Vérifié",  # Maintenant vérifié
-                inline=True
-            )
-            
-            # Si on a supprimé d'autres scores, mettre à jour la liste ou la supprimer complètement
-            if other_scores_deleted:
-                # Simplifier l'embed en supprimant le champ "Tous les temps soumis"
-                # car il n'y a plus qu'un seul score
-                embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
-                
-                # Ajouter une note indiquant que les autres scores ont été supprimés
-                embed.add_field(
-                    name="Autres scores",
-                    value="❌ Les autres scores de cet utilisateur ont été automatiquement supprimés.",
-                    inline=False
-                )
-            else:
-                # Sinon, mettre à jour la liste des scores normalement
-                scores_list = ""
-                for i, score in enumerate(scores):
-                    verification_status = "✅" if (score['verified'] or (i == score_index - 1)) else "⏳"
-                    current_marker = "➡️ " if i == (score_index - 1) else ""
-                    scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
-                
-                # Mettre à jour le champ avec la liste des scores
-                embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
-                embed.insert_field_at(
-                    3,
-                    name="Tous les temps soumis",
-                    value=scores_list,
-                    inline=False
-                )
-            
-            # Envoyer l'embed mis à jour
-            await interaction.response.send_message(embed=embed)
-            
-            # Confirmer la vérification
+            # Créer l'embed de confirmation
             message = f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été marqué comme vérifié."
             if other_scores_deleted:
                 message += f"\n{len(scores)-1} autres scores ont été automatiquement supprimés."
@@ -348,57 +304,81 @@ class AdminCog(commands.Cog):
                 "Score vérifié",
                 message
             )
-            await interaction.followup.send(embed=follow_up_embed)
+            
+            # Envoyer la confirmation en message éphémère
+            await interaction.followup.send(embed=follow_up_embed, ephemeral=True)
+            
+            # Vérifier si un thread de tournoi existe et y envoyer une notification
+            if tournament['thread_id']:
+                try:
+                    thread = interaction.guild.get_thread(int(tournament['thread_id']))
+                    if thread:
+                        # Créer un embed pour l'annonce dans le thread
+                        thread_embed = discord.Embed(
+                            title="✅ Score vérifié",
+                            description=f"Le score de {utilisateur.mention} a été vérifié par {interaction.user.mention}.",
+                            color=0x2ECC71  # Vert
+                        )
+                        
+                        thread_embed.add_field(
+                            name="Temps vérifié",
+                            value=f"**{format_time(selected_score['time_ms'])}**",
+                            inline=True
+                        )
+                        
+                        if other_scores_deleted:
+                            thread_embed.add_field(
+                                name="Note",
+                                value=f"Les autres temps soumis ont été supprimés automatiquement.",
+                                inline=True
+                            )
+                        
+                        thread_embed.set_thumbnail(url=tournament['course_image'])
+                        
+                        await thread.send(embed=thread_embed)
+                except Exception as e:
+                    log_error(f"Erreur lors de l'envoi de la notification de vérification dans le thread: {str(e)}")
             
         elif action == "delete":
-            # Mettre à jour l'embed pour indiquer que le score sera supprimé
-            embed.remove_field(2)  # Supprime le champ "Status"
-            embed.insert_field_at(
-                2,
-                name="Status",
-                value="❌ Supprimé",  # Indique que le score est supprimé
-                inline=True
-            )
-            
-            # Mettre à jour également la liste des scores
-            scores_list = ""
-            for i, score in enumerate(scores):
-                # Pour le score supprimé, on met une croix rouge
-                if i == (score_index - 1):
-                    verification_status = "❌"
-                    current_marker = "➡️ "
-                else:
-                    verification_status = "✅" if score['verified'] else "⏳"
-                    current_marker = ""
-                scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
-            
-            # Mettre à jour le champ avec la liste des scores
-            embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
-            embed.insert_field_at(
-                3,
-                name="Tous les temps soumis",
-                value=scores_list,
-                inline=False
-            )
-            
-            # Répondre avec l'embed mis à jour
-            await interaction.response.send_message(embed=embed)
-            
+            # Similaire pour l'action "delete"
             # Supprimer le score
             await DatabaseManager.delete_score(selected_score['id'])
             
-            # Confirmer la suppression
+            # Confirmer la suppression en message éphémère
             follow_up_embed = EmbedBuilder.confirmation_message(
                 "Score supprimé",
                 f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été supprimé."
             )
-            await interaction.followup.send(embed=follow_up_embed)
-        
+            await interaction.followup.send(embed=follow_up_embed, ephemeral=True)
+            
+            # Vérifier si un thread de tournoi existe et y envoyer une notification
+            if tournament['thread_id']:
+                try:
+                    thread = interaction.guild.get_thread(int(tournament['thread_id']))
+                    if thread:
+                        # Créer un embed pour l'annonce dans le thread
+                        thread_embed = discord.Embed(
+                            title="❌ Score supprimé",
+                            description=f"Un score de {utilisateur.mention} a été supprimé par {interaction.user.mention}.",
+                            color=0xE74C3C  # Rouge
+                        )
+                        
+                        thread_embed.add_field(
+                            name="Temps supprimé",
+                            value=f"**{format_time(selected_score['time_ms'])}**",
+                            inline=True
+                        )
+                        
+                        thread_embed.set_thumbnail(url=tournament['course_image'])
+                        
+                        await thread.send(embed=thread_embed)
+                except Exception as e:
+                    log_error(f"Erreur lors de l'envoi de la notification de suppression dans le thread: {str(e)}")
+
         # Mettre à jour le classement
         tournament_cog = self.bot.get_cog('TournamentCog')
         if tournament_cog:
-            await tournament_cog.update_leaderboard(interaction.guild_id, tournament['id'])
-    
+            await tournament_cog.update_leaderboard(interaction.guild_id, tournament['id'])    
     @app_commands.command(
         name="scores",
         description="Affiche tous les scores d'un utilisateur pour le tournoi en cours"
