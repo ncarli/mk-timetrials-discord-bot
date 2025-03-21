@@ -341,7 +341,8 @@ class AdminCog(commands.Cog):
             # Envoyer l'embed mis à jour avec le message de confirmation
             await interaction.response.send_message(
                 content=confirm_message,
-                embed=embed
+                embed=embed,
+                ephemeral=True
             )
             
             # Vérifier si un thread de tournoi existe et y envoyer une notification
@@ -413,7 +414,8 @@ class AdminCog(commands.Cog):
             # Envoyer l'embed mis à jour avec un message de confirmation
             await interaction.response.send_message(
                 content=f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été supprimé.",
-                embed=embed
+                embed=embed,
+                ephemeral=True
             )
             
             # Vérifier si un thread de tournoi existe et y envoyer une notification
