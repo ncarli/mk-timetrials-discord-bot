@@ -6,6 +6,8 @@ from discord import app_commands
 from discord.ext import commands
 from typing import Optional
 
+import random
+from config import TRASH_TALK_MESSAGES
 from database.manager import DatabaseManager
 from database.models import parse_time, format_time
 from utils.embeds import EmbedBuilder
@@ -101,6 +103,10 @@ class ScoresCog(commands.Cog):
             screenshot_url = preuve.url
         
         try:
+            best_scores_before  = await DatabaseManager.get_best_scores(tournament['id'], limit=1)
+            old_best_time       = best_scores_before[0]['time_ms'] if best_scores_before else None
+            old_best_user_id    = best_scores_before[0]['discord_id'] if best_scores_before else None
+            
             # Enregistrer le score
             score_id = await DatabaseManager.submit_score(participation_id, time_ms, screenshot_url)
             
@@ -115,16 +121,44 @@ class ScoresCog(commands.Cog):
                 str(interaction.channel.id) == tournament['thread_id']
             )
             
+            # Vérifier si c'est le meilleur temps du tournoi
+            is_new_record = False
+
+            if old_best_time is not None:
+                
+                # C'est un nouveau record si le temps est meilleur (plus petit) que l'ancien record
+                # et que ce n'est pas le même utilisateur
+                is_new_record = (time_ms < old_best_time and str(interaction.user.id) != old_best_user_id)
+                
             # Annoncer le nouveau score dans le thread du tournoi
             if tournament['thread_id']:
                 try:
                     thread = interaction.guild.get_thread(int(tournament['thread_id']))
                     if thread:
-                        # Créer un embed pour annoncer le nouveau score dans le thread
+                        # Message de base pour l'annonce
+                        announcement_description = f"{interaction.user.mention} vient de soumettre un temps de **{format_time(time_ms)}** !"
+
+                        # Couleur de l'embed - vert par défaut
+                        embed_color = 0x2ECC71  # Vert
+
+                        # Si c'est un nouveau record, ajouter un message de trash talk
+                        if is_new_record:
+                            # Sélectionner un message aléatoire
+                            trash_talk = random.choice(TRASH_TALK_MESSAGES)
+                            
+                            # Calculer l'amélioration
+                            time_diff = old_best_time - time_ms
+                            diff_text = f"**{format_time(time_diff)}** de mieux que le précédent record !"
+                            
+                            # Mettre à jour le message et la couleur
+                            announcement_description = f"{trash_talk}\n\n{interaction.user.mention} explose le record avec **{format_time(time_ms)}** !\n{diff_text}"
+                            embed_color = 0xFF9500  # Orange vif pour les records
+
+                        # Créer l'embed pour annoncer le nouveau score
                         score_announce_embed = discord.Embed(
-                            title=f"🕒 Nouveau temps soumis !",
-                            description=f"{interaction.user.mention} vient de soumettre un temps de **{format_time(time_ms)}** !",
-                            color=0x2ECC71  # Vert
+                            title=f"🕒 {'NOUVEAU RECORD !!!' if is_new_record else 'Nouveau temps soumis !'}", 
+                            description=announcement_description,
+                            color=embed_color
                         )
                         
                         if screenshot_url:
@@ -141,7 +175,7 @@ class ScoresCog(commands.Cog):
                         # Si l'utilisateur n'est pas dans le thread, lui suggérer de le rejoindre
                         if not in_tournament_thread:
                             await interaction.followup.send(
-                                f"Votre temps a été annoncé dans <#{tournament['thread_id']}>. Rejoignez le thread pour suivre le tournoi !",
+                                f"Ton temps a été annoncé dans <#{tournament['thread_id']}>. Rejoins le thread pour suivre le tournoi !",
                                 ephemeral=True
                             )
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError) as e:
