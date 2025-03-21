@@ -7,11 +7,12 @@ A Discord bot for organizing Time Attack tournaments for Mario Kart 8 Deluxe. Pl
 ## ✨ Features
 
 - **Time Attack Tournaments**: Organize tournaments on random tracks
+- **Thread Organization**: Each tournament creates a dedicated thread to centralize all interactions
 - **Score Management**: Record and verify participants' times
-- **Automatic Leaderboard**: Real-time updates of best times
+- **Automatic Leaderboard**: Real-time updates of best times in tournament threads
 - **Verification System**: Support for screenshot proof submission
 - **Automatic Reminders**: Notifications before tournament end
-- **Automatic Completion**: Closing and announcing results at deadline
+- **Automatic Completion**: Closing and announcing results at deadline with participant mentions
 
 ## 🛠️ Prerequisites
 
@@ -27,6 +28,9 @@ A Discord bot for organizing Time Attack tournaments for Mario Kart 8 Deluxe. Pl
       - Attach Files
       - Read Message History
       - Manage Messages
+      - Create Public Threads
+      - Send Messages in Threads
+      - Manage Threads
    - Scopes
       - bot
       - applications.commands
@@ -65,6 +69,7 @@ python main.py
 
 ### Tournament Commands
 - `/tournoi [classe] [duree] [course]` - Creates a new tournament (admin only)
+- `/tournois` - Lists active tournaments and their dedicated threads
 - `/participer` - Registers the user for the current tournament
 - `/info` - Displays information about the current tournament
 - `/annuler` - Cancels the current tournament (admin only)
@@ -72,7 +77,7 @@ python main.py
 ### Score Commands
 - `/score <temps> [preuve]` - Submits a time for the current tournament
 - `/messcores` - Shows the user's submitted times
-- `/verifier <utilisateur> <action>` - Verifies or deletes a score (admin only)
+- `/verifier <utilisateur> <action> [score_index]` - Verifies or deletes a score (admin only)
 
 ### Administration Commands
 - `/config [prefix] [role_admin]` - Configures the bot
@@ -80,6 +85,19 @@ python main.py
 
 ### Help Command
 - `/aide` - Displays bot help information
+
+## 🧵 Thread System
+
+The bot uses Discord threads to organize tournaments:
+- Each tournament automatically creates a dedicated thread
+- All tournament-related interactions happen in this thread
+- New participant announcements are posted in the thread
+- Score submissions are announced in the thread
+- Leaderboards are kept up-to-date in the thread
+- When a tournament ends, all participants are mentioned in the thread
+- Completed tournament threads are automatically archived
+
+This system keeps your main channels clean while providing a dedicated space for each tournament.
 
 ## 🏗️ Project Structure
 
