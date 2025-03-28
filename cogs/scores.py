@@ -201,7 +201,7 @@ class ScoresCog(commands.Cog):
     
     @app_commands.command(
         name="messcores",
-        description="Affiche tous vos temps soumis pour le tournoi en cours"
+        description="Affiche l'historique complet des temps soumis pour le tournoi en cours avec leurs statuts"
     )
     async def view_scores(self, interaction: discord.Interaction):
         """
@@ -261,21 +261,34 @@ class ScoresCog(commands.Cog):
             color=0x3498DB  # Bleu
         )
         
+        # Trier les scores par temps (du meilleur au pire)
+        scores.sort(key=lambda x: x['time_ms'])
+        
+        # Ajouter un emoji selon le statut
+        status_icons = {
+            'pending': '⏳',
+            'verified': '✅', 
+            'archived': '📁',
+            'rejected': '❌'
+        }
+        
         for i, score in enumerate(scores):
-            verification_status = "✅ Vérifié" if score['verified'] else "⏳ En attente"
+            status_icon = status_icons.get(score['status'], '⏳')
             embed.add_field(
                 name=f"Temps #{i+1}",
-                value=f"**{format_time(score['time_ms'])}** - Soumis le {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}\nStatut: {verification_status}",
+                value=f"{status_icon} **{format_time(score['time_ms'])}** - Soumis le {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}",
                 inline=False
             )
-        
-        # Meilleur temps en évidence
-        best_score = min(scores, key=lambda x: x['time_ms'])
-        embed.add_field(
-            name="Votre meilleur temps",
-            value=f"**{format_time(best_score['time_ms'])}**",
-            inline=False
-        )
+            
+        # Afficher le meilleur score vérifié s'il existe
+        verified_scores = [s for s in scores if s['status'] == 'verified']
+        if verified_scores:
+            best_verified = verified_scores[0]  # Il ne devrait y en avoir qu'un seul
+            embed.add_field(
+                name="Votre temps officiel",
+                value=f"✅ **{format_time(best_verified['time_ms'])}**",
+                inline=False
+            )
         
         embed.set_thumbnail(url=tournament['course_image'])
         

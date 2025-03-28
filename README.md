@@ -13,6 +13,8 @@ A Discord bot for organizing Time Attack tournaments for Mario Kart 8 Deluxe. Pl
 - **Verification System**: Support for screenshot proof submission
 - **Automatic Reminders**: Notifications before tournament end
 - **Automatic Completion**: Closing and announcing results at deadline with participant mentions
+- **Score History Preservation**: Players can view their full score history, with scores marked as verified, pending, archived, or rejected
+- **Intelligent Score Archiving**: When verifying a time, only slower times are automatically archived
 
 ## 🛠️ Prerequisites
 

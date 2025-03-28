@@ -66,14 +66,22 @@ CREATE_TABLES = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS score_status (
+        status_id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS score (
         score_id INTEGER PRIMARY KEY AUTOINCREMENT,
         participation_id INTEGER NOT NULL,
         time_ms INTEGER NOT NULL,
         screenshot_url TEXT,
         submitted_at TIMESTAMP NOT NULL,
-        is_verified BOOLEAN DEFAULT 0,
-        FOREIGN KEY (participation_id) REFERENCES participation (participation_id) ON DELETE CASCADE
+        status_id INTEGER DEFAULT 1,  # 1 pour 'pending'
+        FOREIGN KEY (participation_id) REFERENCES participation (participation_id) ON DELETE CASCADE,
+        FOREIGN KEY (status_id) REFERENCES score_status (status_id)
     )
     """
 ]
@@ -89,6 +97,26 @@ async def initialize_database() -> None:
         
         # Vérification des mises à jour de schéma nécessaires
         await _check_schema_updates(db)
+        
+        # Insertion des statuts de score si la table vient d'être créée
+        cursor  = await db.execute("SELECT COUNT(*) FROM score_status")
+        count   = await cursor.fetchone()
+        
+        if count[0] == 0:
+            status_values = [
+                (1, 'pending', 'Score en attente de vérification'),
+                (2, 'verified', 'Score vérifié et retenu comme meilleur score'),
+                (3, 'archived', 'Score vérifié mais non retenu (historique)'),
+                (4, 'rejected', 'Score rejeté par un admin')
+            ]
+            
+            for status in status_values:
+                await db.execute(
+                    "INSERT INTO score_status (status_id, name, description) VALUES (?, ?, ?)",
+                    status
+                )
+            
+            print(f"Insertion réussie des {len(status_values)} statuts de score.")
         
         # Vérifier si les courses sont déjà importées
         cursor = await db.execute("SELECT COUNT(*) FROM course")

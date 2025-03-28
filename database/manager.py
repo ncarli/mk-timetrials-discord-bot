@@ -444,13 +444,24 @@ class DatabaseManager:
         conn = await cls.get_connection()
         cursor = await conn.execute(
             """
-            SELECT u.username, u.discord_id, MIN(s.time_ms) as best_time, s.screenshot_url, s.is_verified
+            SELECT u.username, u.discord_id, s.time_ms, s.screenshot_url, s.status_id, ss.name as status_name
             FROM score s
             JOIN participation p ON s.participation_id = p.participation_id
             JOIN user u ON p.user_id = u.user_id
+            JOIN score_status ss ON s.status_id = ss.status_id
             WHERE p.tournament_id = ?
-            GROUP BY u.user_id
-            ORDER BY best_time ASC
+            AND (
+                -- Priorité aux scores vérifiés (si disponible pour l'utilisateur)
+                s.status_id = 2 
+                OR 
+                -- Sinon, on prend le meilleur score en attente
+                (s.status_id = 1 AND NOT EXISTS (
+                    SELECT 1 FROM score s2 
+                    JOIN participation p2 ON s2.participation_id = p2.participation_id 
+                    WHERE p2.user_id = p.user_id AND p2.tournament_id = p.tournament_id AND s2.status_id = 2
+                ))
+            )
+            ORDER BY s.time_ms ASC
             LIMIT ?
             """,
             (tournament_id, limit)
@@ -464,7 +475,9 @@ class DatabaseManager:
                 "discord_id": row[1],
                 "time_ms": row[2],
                 "screenshot_url": row[3],
-                "verified": bool(row[4])
+                "status_id": row[4],
+                "status": row[5],
+                "verified": row[4] == 2  # Pour compatibilité avec le code existant (2 = verified)
             })
         
         return scores
@@ -504,10 +517,11 @@ class DatabaseManager:
         conn = await cls.get_connection()
         cursor = await conn.execute(
             """
-            SELECT score_id, time_ms, screenshot_url, submitted_at, is_verified
-            FROM score
-            WHERE participation_id = ?
-            ORDER BY time_ms ASC
+            SELECT s.score_id, s.time_ms, s.screenshot_url, s.submitted_at, s.status_id, ss.name as status_name
+            FROM score s
+            JOIN score_status ss ON s.status_id = ss.status_id
+            WHERE s.participation_id = ?
+            ORDER BY s.time_ms ASC
             """,
             (participation_id,)
         )
@@ -520,7 +534,9 @@ class DatabaseManager:
                 "time_ms": row[1],
                 "screenshot_url": row[2],
                 "submitted_at": datetime.fromisoformat(row[3]),
-                "verified": bool(row[4])
+                "status_id": row[4],
+                "status": row[5],
+                "verified": row[4] == 2  # Pour compatibilité (status_id=2 correspond à "verified")
             })
         
         return scores
@@ -528,7 +544,7 @@ class DatabaseManager:
     @classmethod
     async def verify_score(cls, score_id: int) -> bool:
         """
-        Marque un score comme vérifié.
+        Marque un score comme vérifié sans modifier les autres scores.
         
         Args:
             score_id: ID du score
@@ -538,10 +554,12 @@ class DatabaseManager:
         """
         conn = await cls.get_connection()
         try:
+            # Marquer ce score comme vérifié (status_id=2)
             await conn.execute(
-                "UPDATE score SET is_verified = 1 WHERE score_id = ?",
+                "UPDATE score SET status_id = 2 WHERE score_id = ?",
                 (score_id,)
             )
+            
             await conn.commit()
             return True
         except aiosqlite.Error:
@@ -683,3 +701,55 @@ class DatabaseManager:
         result = await cursor.fetchone()
         
         return result[0] if result and result[0] else None
+
+    @classmethod
+    async def update_score_status(cls, score_id: int, status_id: int) -> bool:
+        """
+        Met à jour le statut d'un score.
+        
+        Args:
+            score_id: ID du score
+            status_id: Nouvel ID de statut
+            
+        Returns:
+            True si la mise à jour est réussie, False sinon
+        """
+        conn = await cls.get_connection()
+        try:
+            await conn.execute(
+                "UPDATE score SET status_id = ? WHERE score_id = ?",
+                (status_id, score_id)
+            )
+            await conn.commit()
+            return True
+        except aiosqlite.Error:
+            return False
+
+    @classmethod
+    async def archive_other_scores(cls, score_id: int) -> bool:
+        """
+        Marque tous les autres scores de la même participation comme archivés.
+        """
+        conn = await cls.get_connection()
+        try:
+            # Récupérer la participation_id du score
+            cursor = await conn.execute(
+                "SELECT participation_id FROM score WHERE score_id = ?",
+                (score_id,)
+            )
+            result = await cursor.fetchone()
+            if not result:
+                return False
+                
+            participation_id = result[0]
+            
+            # Marquer tous les autres scores de la même participation comme archivés
+            await conn.execute(
+                "UPDATE score SET status_id = 3 WHERE participation_id = ? AND score_id != ?",
+                (participation_id, score_id)
+            )
+            
+            await conn.commit()
+            return True
+        except aiosqlite.Error:
+            return False

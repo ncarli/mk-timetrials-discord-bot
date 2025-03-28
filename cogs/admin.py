@@ -253,11 +253,18 @@ class AdminCog(commands.Cog):
         )
         
         # Ajouter un champ montrant tous les temps soumis
+        status_icons = {
+            1: "⏳",  # pending
+            2: "✅",  # verified
+            3: "📁",  # archived
+            4: "❌"   # rejected
+        }
+
         scores_list = ""
         for i, score in enumerate(scores):
-            verification_status = "✅" if score['verified'] else "⏳"
+            status_icon = status_icons.get(score['status_id'], "⏳")
             current_marker = "➡️ " if i == (score_index - 1) else ""
-            scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
+            scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {status_icon}\n"
         
         embed.add_field(
             name="Tous les temps soumis",
@@ -286,15 +293,24 @@ class AdminCog(commands.Cog):
             # Vérifier le score sélectionné
             await DatabaseManager.verify_score(selected_score['id'])
             
-            # Si c'est le meilleur score (index 1) et qu'il existe d'autres scores,
-            # supprimer automatiquement les autres scores
-            other_scores_deleted = False
-            if score_index == 1 and len(scores) > 1:
-                other_scores_deleted = True
-                # Ne pas supprimer le meilleur score qu'on vient de vérifier
-                for other_score in scores[1:]:  # Tous les scores sauf le premier
-                    await DatabaseManager.delete_score(other_score['id'])
+            # Archiver automatiquement uniquement les scores MOINS BONS que celui validé
+            other_scores_archived   = False
+            archived_count          = 0
             
+            for other_score in scores:
+                # Ne pas toucher au score qu'on vient de vérifier
+                if other_score['id'] == selected_score['id']:
+                    continue
+                # Ne pas modifier les scores déjà supprimés (status_id = 4)
+                if other_score['status_id'] == 4:
+                    continue
+                    
+                # Archiver seulement si le temps est moins bon (plus grand) que le temps validé
+                if other_score['time_ms'] > selected_score['time_ms']:
+                    await DatabaseManager.update_score_status(other_score['id'], 3)  # status_id=3 pour "archived"
+                    archived_count += 1
+                    other_scores_archived = True
+
             # Mettre à jour l'embed pour refléter le nouveau statut
             embed.remove_field(2)  # Supprime le champ "Status"
             embed.insert_field_at(
@@ -306,37 +322,36 @@ class AdminCog(commands.Cog):
             
             # Créer le message de confirmation
             confirm_message = f"Le score #{score_index} de {utilisateur.mention} ({format_time(selected_score['time_ms'])}) a été marqué comme vérifié."
-            if other_scores_deleted:
-                confirm_message += f"\n{len(scores)-1} autres scores ont été automatiquement supprimés."
+            if other_scores_archived:
+                confirm_message += f"\n{archived_count} score(s) moins bon(s) ont été automatiquement archivés."
+            
+            # Mettre à jour la liste des scores
+            scores_list = ""
+            for i, score in enumerate(scores):
+                # Si le score est déjà supprimé, conserver l'icône supprimé
+                if score['status_id'] == 4:  # status_id=4 pour "supprimé"
+                    status_icon = "❌"  # Supprimé
+                # Pour le score qu'on vient de vérifier
+                elif i == (score_index - 1):
+                    status_icon = "✅"
+                # Pour les scores qui viennent d'être archivés (moins bons que celui vérifié)
+                elif score['time_ms'] > selected_score['time_ms']:
+                    status_icon = "📁"  # Archivé
+                # Pour les autres scores (inchangés)
+                else:
+                    status_icon = status_icons.get(score['status_id'], "⏳")
                 
-                # Si on a supprimé d'autres scores, mettre à jour la liste ou la supprimer complètement
-                if other_scores_deleted:
-                    # Simplifier l'embed en supprimant le champ "Tous les temps soumis"
-                    # car il n'y a plus qu'un seul score
-                    embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
-                    
-                    # Ajouter une note indiquant que les autres scores ont été supprimés
-                    embed.add_field(
-                        name="Autres scores",
-                        value="❌ Les autres scores de cet utilisateur ont été automatiquement supprimés.",
-                        inline=False
-                    )
-            else:
-                # Sinon, mettre à jour la liste des scores normalement
-                scores_list = ""
-                for i, score in enumerate(scores):
-                    verification_status = "✅" if (score['verified'] or (i == score_index - 1)) else "⏳"
-                    current_marker = "➡️ " if i == (score_index - 1) else ""
-                    scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
-                
-                # Mettre à jour le champ avec la liste des scores
-                embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
-                embed.insert_field_at(
-                    3,
-                    name="Tous les temps soumis",
-                    value=scores_list,
-                    inline=False
-                )
+                current_marker = "➡️ " if i == (score_index - 1) else ""
+                scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {status_icon}\n"
+            
+            # Mettre à jour le champ avec la liste des scores
+            embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
+            embed.insert_field_at(
+                3,
+                name="Tous les temps soumis",
+                value=scores_list,
+                inline=False
+            )
             
             # Envoyer l'embed mis à jour avec le message de confirmation
             await interaction.response.send_message(
@@ -363,10 +378,10 @@ class AdminCog(commands.Cog):
                             inline=True
                         )
                         
-                        if other_scores_deleted:
+                        if other_scores_archived:
                             thread_embed.add_field(
                                 name="Note",
-                                value=f"Les autres temps soumis ont été supprimés automatiquement.",
+                                value=f"Les autres temps soumis ont été archivés automatiquement.",
                                 inline=True
                             )
                         
@@ -379,7 +394,7 @@ class AdminCog(commands.Cog):
         elif action == "delete":
             # Similaire pour l'action "delete"
             # Supprimer le score
-            await DatabaseManager.delete_score(selected_score['id'])
+            await DatabaseManager.update_score_status(selected_score['id'], 4) # status_id=4 pour "archived"   
             
             # Mettre à jour l'embed pour indiquer que le score a été supprimé
             embed.remove_field(2)  # Supprime le champ "Status"
@@ -395,12 +410,12 @@ class AdminCog(commands.Cog):
             for i, score in enumerate(scores):
                 # Pour le score supprimé, on met une croix rouge
                 if i == (score_index - 1):
-                    verification_status = "❌"
+                    status_icon = "❌"
                     current_marker = "➡️ "
                 else:
-                    verification_status = "✅" if score['verified'] else "⏳"
-                    current_marker = ""
-                scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {verification_status}\n"
+                    status_icon = status_icons.get(score['status_id'], "⏳")
+                    current_marker = "➡️ " if i == (score_index - 1) else ""
+                scores_list += f"{current_marker}#{i+1}: **{format_time(score['time_ms'])}** {status_icon}\n"
             
             # Mettre à jour le champ avec la liste des scores
             embed.remove_field(3)  # Supprime le champ "Tous les temps soumis"
