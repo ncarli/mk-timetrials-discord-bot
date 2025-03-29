@@ -272,13 +272,19 @@ class ScoresCog(commands.Cog):
             'rejected': '❌'
         }
         
+        scores_list = ""
         for i, score in enumerate(scores):
             status_icon = status_icons.get(score['status'], '⏳')
-            embed.add_field(
-                name=f"Temps #{i+1}",
-                value=f"{status_icon} **{format_time(score['time_ms'])}** - Soumis le {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}",
-                inline=False
-            )
+            
+            # Ajouter le lien vers la preuve si elle existe
+            proof_link  = f" • [voir preuve]({score['screenshot_url']})" if score['screenshot_url'] else " • *aucune preuve*"
+            scores_list += f"#{i+1}: **{format_time(score['time_ms'])}** {status_icon} - {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}{proof_link}\n"
+
+        embed.add_field(
+            name="Vos temps soumis",
+            value=scores_list,
+            inline=False
+        )
             
         # Afficher le meilleur score vérifié s'il existe
         verified_scores = [s for s in scores if s['status'] == 'verified']
