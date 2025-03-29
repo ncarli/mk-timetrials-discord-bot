@@ -541,14 +541,24 @@ class AdminCog(commands.Cog):
             color=0x3498DB  # Bleu
         )
         
-        # Ajouter chaque score à l'embed
+        # Ajouter un champ montrant tous les temps soumis
+        status_icons = {
+            1: "⏳",  # pending
+            2: "✅",  # verified
+            3: "📁",  # archived
+            4: "❌"   # rejected
+        }
+
+        scores_list = ""
         for i, score in enumerate(scores):
-            verification_status = "✅ Vérifié" if score['verified'] else "⏳ En attente"
-            embed.add_field(
-                name=f"Score #{i+1}: {format_time(score['time_ms'])}",
-                value=f"Soumis le {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}\nStatut: {verification_status}",
-                inline=True
-            )
+            status_icon = status_icons.get(score['status_id'], "⏳")
+            scores_list += f"#{i+1}: **{format_time(score['time_ms'])}** {status_icon} - {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}\n"
+        
+        embed.add_field(
+            name="Tous les temps soumis",
+            value=scores_list,
+            inline=False
+        )
         
         embed.set_thumbnail(url=tournament['course_image'])
         embed.set_footer(text=f"Pour vérifier un score spécifique, utilisez /verifier avec le paramètre score_index")
