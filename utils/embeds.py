@@ -115,11 +115,21 @@ class EmbedBuilder:
             )
         else:
             leaderboard_text = ""
+            best_time = scores[0]['time_ms']  # Meilleur temps (premier dans la liste)
             
             for i, score in enumerate(scores):
                 medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"{i+1}."
                 verification = " ✓" if score['verified'] else ""
-                leaderboard_text += f"{medal} **{score['username']}**: {format_time(score['time_ms'])}{verification}\n"
+                
+                # Calcul et formatage de l'écart avec le meilleur temps
+                time_diff = score['time_ms'] - best_time
+                diff_text = ""
+                if i > 0:  # Pas d'écart pour le meilleur temps
+                    # Formatage de l'écart en secondes avec 3 décimales
+                    diff_seconds    = time_diff / 1000
+                    diff_text       = f" (+{diff_seconds:.3f})"
+                
+                leaderboard_text += f"{medal} **{score['username']}**: {format_time(score['time_ms'])}{diff_text}{verification}\n"
             
             embed.add_field(
                 name="Meilleurs temps",
