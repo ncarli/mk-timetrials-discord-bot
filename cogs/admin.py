@@ -394,7 +394,7 @@ class AdminCog(commands.Cog):
         elif action == "delete":
             # Similaire pour l'action "delete"
             # Supprimer le score
-            await DatabaseManager.update_score_status(selected_score['id'], 4) # status_id=4 pour "archived"   
+            await DatabaseManager.update_score_status(selected_score['id'], 4) # status_id=4 pour "rejected"   
             
             # Mettre à jour l'embed pour indiquer que le score a été supprimé
             embed.remove_field(2)  # Supprime le champ "Status"

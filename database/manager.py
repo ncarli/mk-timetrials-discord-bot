@@ -566,28 +566,6 @@ class DatabaseManager:
             return False
     
     @classmethod
-    async def delete_score(cls, score_id: int) -> bool:
-        """
-        Supprime un score.
-        
-        Args:
-            score_id: ID du score
-            
-        Returns:
-            True si la suppression est réussie, False sinon
-        """
-        conn = await cls.get_connection()
-        try:
-            await conn.execute(
-                "DELETE FROM score WHERE score_id = ?",
-                (score_id,)
-            )
-            await conn.commit()
-            return True
-        except aiosqlite.Error:
-            return False
-    
-    @classmethod
     async def get_tournament_participants_count(cls, tournament_id: int) -> int:
         """
         Récupère le nombre de participants à un tournoi.
@@ -720,35 +698,6 @@ class DatabaseManager:
                 "UPDATE score SET status_id = ? WHERE score_id = ?",
                 (status_id, score_id)
             )
-            await conn.commit()
-            return True
-        except aiosqlite.Error:
-            return False
-
-    @classmethod
-    async def archive_other_scores(cls, score_id: int) -> bool:
-        """
-        Marque tous les autres scores de la même participation comme archivés.
-        """
-        conn = await cls.get_connection()
-        try:
-            # Récupérer la participation_id du score
-            cursor = await conn.execute(
-                "SELECT participation_id FROM score WHERE score_id = ?",
-                (score_id,)
-            )
-            result = await cursor.fetchone()
-            if not result:
-                return False
-                
-            participation_id = result[0]
-            
-            # Marquer tous les autres scores de la même participation comme archivés
-            await conn.execute(
-                "UPDATE score SET status_id = 3 WHERE participation_id = ? AND score_id != ?",
-                (participation_id, score_id)
-            )
-            
             await conn.commit()
             return True
         except aiosqlite.Error:
