@@ -755,6 +755,145 @@ class TournamentCog(commands.Cog):
                     f"Pour suivre le tournoi et interagir avec les autres participants, rejoignez le thread dédié : <#{tournament['thread_id']}>",
                     ephemeral=True
                 )
+    @app_commands.command(
+        name="statut",
+        description="Affiche le statut actuel du tournoi en cours"
+    )
+    @app_commands.describe(
+        mentionner="Mentionner tous les participants?"
+    )
+    async def tournament_status(
+        self,
+        interaction: discord.Interaction,
+        mentionner: bool = False
+    ):
+        """
+        Affiche le statut actuel du tournoi en cours avec option de mentionner les participants.
+        
+        Args:
+            interaction: Interaction Discord
+            mentionner: Si True, mentionne tous les participants
+        """
+        # Journaliser la commande
+        log_command(interaction.guild_id, interaction.user.id, "statut")
+        
+        # Vérifier si l'utilisateur est administrateur
+        if not interaction.user.guild_permissions.administrator:
+            admin_role_id = await DatabaseManager.get_admin_role(interaction.guild_id)
+            if admin_role_id:
+                role = interaction.guild.get_role(admin_role_id)
+                if not role or role not in interaction.user.roles:
+                    await interaction.response.send_message(
+                        embed=EmbedBuilder.error_message(
+                            "Permission refusée",
+                            "Vous devez être administrateur ou avoir le rôle approprié pour utiliser cette commande."
+                        ),
+                        ephemeral=True
+                    )
+                    return
+            else:
+                await interaction.response.send_message(
+                    embed=EmbedBuilder.error_message(
+                        "Permission refusée",
+                        "Vous devez être administrateur pour utiliser cette commande."
+                    ),
+                    ephemeral=True
+                )
+                return
+        
+        # Vérifier s'il y a un tournoi actif
+        tournament = await DatabaseManager.get_active_tournament(interaction.guild_id)
+        if not tournament:
+            await interaction.response.send_message(
+                embed=EmbedBuilder.error_message(
+                    "Aucun tournoi actif",
+                    "Il n'y a pas de tournoi en cours sur ce serveur."
+                ),
+                ephemeral=True
+            )
+            return
+        
+        # Récupérer les meilleurs scores
+        scores = await DatabaseManager.get_best_scores(tournament['id'])
+        
+        # Calculer le temps restant
+        time_left       = tournament['end_date'] - datetime.now()
+        days_left       = time_left.days
+        hours_left      = time_left.seconds // 3600
+        minutes_left    = (time_left.seconds % 3600) // 60
+        
+        time_left_dict = {
+            'days': days_left,
+            'hours': hours_left,
+            'minutes': minutes_left
+        }
+        
+        # Récupérer le nombre de participants
+        participants_count = await DatabaseManager.get_tournament_participants_count(tournament['id'])
+        
+        # Créer l'embed
+        embed = EmbedBuilder.tournament_status(tournament, scores, time_left_dict)
+        
+        # Mettre à jour le champ des participants avec le nombre exact
+        embed.set_field_at(
+            3,  # Index du champ des participants (0-indexé)
+            name="👥 Participants",
+            value=f"{participants_count} pilote{'s' if participants_count != 1 else ''} en course",
+            inline=True
+        )
+        
+        # Vérifier si le thread du tournoi existe
+        if tournament['thread_id']:
+            try:
+                thread = interaction.guild.get_thread(int(tournament['thread_id']))
+                if thread:
+                    # Envoyer l'embed dans le thread
+                    await thread.send(embed=embed)
+                    
+                    # Si l'option de mention est activée, mentionner tous les participants
+                    if mentionner:
+                        # Récupérer les IDs des participants
+                        participants = await self._get_tournament_participants(tournament['id'])
+                        
+                        if participants:
+                            # Créer le message de mention
+                            participants_mentions = [f"<@{participant_id}>" for participant_id in participants]
+                            mention_chunks = []
+                            
+                            # Diviser les mentions en chunks pour éviter de dépasser les limites de Discord
+                            current_chunk = ""
+                            for mention in participants_mentions:
+                                if len(current_chunk) + len(mention) + 1 > 2000:  # Limite de 2000 caractères
+                                    mention_chunks.append(current_chunk)
+                                    current_chunk = mention
+                                else:
+                                    if current_chunk:
+                                        current_chunk += " " + mention
+                                    else:
+                                        current_chunk = mention
+                            
+                            if current_chunk:
+                                mention_chunks.append(current_chunk)
+                            
+                            # Envoyer le rappel avec les mentions
+                            await thread.send("🔔 **Rappel pour tous les participants du tournoi :**")
+                            
+                            for chunk in mention_chunks:
+                                await thread.send(chunk)
+                    
+                    # Répondre à l'interaction avec une confirmation
+                    await interaction.response.send_message(
+                        content=f"Le statut du tournoi a été envoyé dans le thread <#{tournament['thread_id']}>.",
+                        ephemeral=True
+                    )
+                    return
+                    
+            except Exception as e:
+                logger.error(f"Erreur lors de l'envoi du statut dans le thread: {str(e)}")
+        
+        # Si on arrive ici, c'est qu'on n'a pas pu envoyer dans le thread (il n'existe pas ou erreur)
+        # Répondre à l'interaction dans le canal actuel
+        await interaction.response.send_message(embed=embed)
         
     async def announce_new_participant(self, interaction, tournament, user=None):
         """

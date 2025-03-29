@@ -388,3 +388,69 @@ class EmbedBuilder:
         embed.set_footer(text=f"ID du score: {score_data['id']}")
         
         return embed
+
+    @staticmethod
+    def tournament_status(tournament: Dict[str, Any], scores: List[Dict[str, Any]], time_left: Dict[str, int]) -> discord.Embed:
+        """
+        Crée un embed pour afficher le statut actuel d'un tournoi.
+        
+        Args:
+            tournament: Informations du tournoi
+            scores: Liste des meilleurs scores
+            time_left: Dictionnaire contenant jours, heures, minutes restantes
+            
+        Returns:
+            Embed Discord
+        """
+        embed = discord.Embed(
+            title=f"{EMOJIS['TROPHY']} Statut du tournoi: {tournament['course_name']} ({tournament['vehicle_class']})",
+            description=f"Voici l'état actuel du tournoi en cours.",
+            color=COLORS['INFO']
+        )
+        
+        # Ajouter le temps restant
+        embed.add_field(
+            name="⏱️ Temps restant",
+            value=f"{time_left['days']} jours, {time_left['hours']} heures et {time_left['minutes']} minutes",
+            inline=False
+        )
+        
+        # Ajouter la période du tournoi
+        embed.add_field(
+            name="Période",
+            value=f"Du {format_date(tournament['start_date'])} au {format_date(tournament['end_date'])}",
+            inline=False
+        )
+        
+        # Afficher le classement actuel
+        if not scores:
+            embed.add_field(
+                name="Classement actuel",
+                value="Aucun score soumis pour le moment. Soyez le premier à participer !",
+                inline=False
+            )
+        else:
+            leaderboard_text = ""
+            
+            for i, score in enumerate(scores):
+                medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"{i+1}."
+                verification = " ✓" if score['verified'] else ""
+                leaderboard_text += f"{medal} **{score['username']}**: {format_time(score['time_ms'])}{verification}\n"
+            
+            embed.add_field(
+                name="Classement actuel",
+                value=leaderboard_text,
+                inline=False
+            )
+        
+        # Ajouter le nombre de participants
+        embed.add_field(
+            name="👥 Participants",
+            value="{count} pilote{s} en course",  # Sera formaté dans la commande
+            inline=True
+        )
+        
+        embed.set_thumbnail(url=tournament['course_image'])
+        embed.set_footer(text="Mis à jour le " + datetime.now().strftime("%d/%m/%Y à %H:%M"))
+        
+        return embed

@@ -189,6 +189,7 @@ async def help_command(interaction: discord.Interaction):
             "`/tournois` - Liste les tournois actifs\n"
             "`/participer` - Inscrit au tournoi en cours\n"
             "`/info` - Affiche les informations du tournoi\n"
+            "`/statut [mentionner]` - Affiche le statut actuel du tournoi  (admin uniquement)\n"
             "`/annuler` - Annule le tournoi en cours (admin uniquement)"
         ),
         inline=False
