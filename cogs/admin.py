@@ -552,7 +552,10 @@ class AdminCog(commands.Cog):
         scores_list = ""
         for i, score in enumerate(scores):
             status_icon = status_icons.get(score['status_id'], "⏳")
-            scores_list += f"#{i+1}: **{format_time(score['time_ms'])}** {status_icon} - {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}\n"
+            
+            # Ajouter le lien vers la preuve si elle existe
+            proof_link  = f" • [voir preuve]({score['screenshot_url']})" if score['screenshot_url'] else " • *aucune preuve*"
+            scores_list += f"#{i+1}: **{format_time(score['time_ms'])}** {status_icon} - {score['submitted_at'].strftime('%d/%m/%Y à %H:%M')}{proof_link}\n"
         
         embed.add_field(
             name="Tous les temps soumis",
