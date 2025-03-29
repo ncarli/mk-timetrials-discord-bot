@@ -74,6 +74,7 @@ python main.py
 - `/tournois` - Lists active tournaments and their dedicated threads
 - `/participer` - Registers the user for the current tournament
 - `/info` - Displays information about the current tournament
+- `/statut [mentionner]` - Displays statut with reminder for current tournament (admin only)
 - `/annuler` - Cancels the current tournament (admin only)
 
 ### Score Commands
