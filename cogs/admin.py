@@ -553,7 +553,7 @@ class AdminCog(commands.Cog):
         embed.set_thumbnail(url=tournament['course_image'])
         embed.set_footer(text=f"Pour vérifier un score spécifique, utilisez /verifier avec le paramètre score_index")
         
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
     
     @app_commands.command(
         name="historique",
